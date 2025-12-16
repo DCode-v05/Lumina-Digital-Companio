@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* Light Theme Default */
+  --background: #ffffff;
+  --surface: #f8fafc;
+  --text: #0f172a;
+  --primary: #2563eb;
+  --secondary: #059669;
+  --muted: #64748b;
+  --input: #e2e8f0;
+  --border: #e2e8f0;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.dark {
+  --background: #202022;
+  /* Zinc 900 - Grey instead of Black */
+  --surface: #27272a;
+  /* Zinc 800 */
+  --text: #e4e4e7;
+  /* Zinc 200 */
+  --primary: #3b82f6;
+  /* Blue 500 */
+  --secondary: #10b981;
+  /* Emerald 500 */
+  --muted: #a1a1aa;
+  /* Zinc 400 */
+  --input: #3f3f46;
+  /* Zinc 700 */
+  --border: #27272a;
+  /* Zinc 800 */
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+}
