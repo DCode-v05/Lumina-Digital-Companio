@@ -91,9 +91,9 @@ export const deleteChat = async (chatId: string) => {
 export const sendMessage = async (chatId: string, message: string) => {
     const response = await axios.post(`${API_URL}/chat`, {
         chat_id: chatId,
-        message: message,
+        message: message
     });
-    return response.data; // { response: string, chat_id: string, title?: string }
+    return response.data; // { response: string, chat_id: string, title?: string, mode: string }
 };
 
 export const getHistory = async (chatId: string) => {

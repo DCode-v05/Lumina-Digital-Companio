@@ -10,7 +10,7 @@ from redis_client import (
     create_chat, get_user_chats, delete_chat_session, update_chat_title,
     get_user_profile, update_user_profile
 )
-from gemini_client import get_ai_response, generate_chat_title
+from groq_service import get_ai_response, generate_chat_title
 import emotion_service
 
 
@@ -175,18 +175,15 @@ def chat_endpoint(
     user_message = request.message
     
     # --- Emotion Tracking ---
-    # 1. Analyze and Log current emotion
+    # Analyze and Log current emotion
     emotion, score = emotion_service.analyze_emotion(user_message)
     if emotion:
-        # We need integer ID for database logging, assuming user.id is int in DB model.
-        # However, our auth system treats IDs as strings often, but in models.py User.id is Integer.
-        # current_user.id comes from models.User so it should be int.
         emotion_service.log_emotion(db, current_user.id, emotion, score)
     
-    # 2. Get Recent Emotion Context
+    # Get Recent Emotion Context
     emotion_summary = emotion_service.get_recent_emotions_summary(db, current_user.id)
     
-    # 0. Get User Profile Context
+    # Get User Profile Context
     user_profile = get_user_profile(user_id)
     
     # Combine Profile + Emotion for context
@@ -194,33 +191,24 @@ def chat_endpoint(
     if emotion_summary:
         combined_context = (combined_context or "") + "\n\n" + emotion_summary
 
-    # 1. Get History (for specific chat)
+    # Get History (for specific chat)
     history = get_chat_history(chat_id)
     
-    # 2. Get AI Response (with combined context)
-    ai_text, title_from_ai, new_facts = get_ai_response(history, user_message, combined_context)
+    # Get AI Response (with combined context)
+    ai_text, title_from_ai, new_facts, mode = get_ai_response(history, user_message, combined_context)
     
-    # 3. Save Context
+    # Save Context
     add_message(chat_id, "user", user_message)
     add_message(chat_id, "model", ai_text)
     
-    # 3.5 Update Profile (Directly from response)
+    # Update Profile (Directly from response)
     if new_facts:
         print(f"📝 Learning new facts about user {user_id}: {new_facts}")
         # Append new facts to existing profile
         updated_profile = user_profile + "\n" + new_facts if user_profile else new_facts
         update_user_profile(user_id, updated_profile)
 
-    # 4. Generate Title (if it's the first message)
-    new_title = None
-    if len(history) == 0:
-        if title_from_ai:
-             new_title = title_from_ai
-        else:
-             # Fallback to local fast generation if AI didn't provide one
-             new_title = generate_chat_title(user_message)
-        
-        update_chat_title(user_id, chat_id, new_title)
+    # Generate Title (if it's the first message)
     new_title = None
     if len(history) == 0:
         if title_from_ai:
@@ -231,7 +219,7 @@ def chat_endpoint(
         
         update_chat_title(user_id, chat_id, new_title)
 
-    return schemas.ChatResponse(response=ai_text, chat_id=chat_id, title=new_title)
+    return schemas.ChatResponse(response=ai_text, chat_id=chat_id, title=new_title, mode=mode)
 
 @app.get("/chats/{chat_id}/history")
 def get_chat_history_endpoint(

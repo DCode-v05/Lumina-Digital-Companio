@@ -41,3 +41,4 @@ class ChatResponse(BaseModel):
     response: str
     chat_id: str
     title: Optional[str] = None
+    mode: str

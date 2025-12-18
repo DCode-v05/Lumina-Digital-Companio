@@ -4,6 +4,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Model Configuration
+MODEL_CONFIG = {
+    "primary": "llama-3.1-8b-instant",
+    "academic": "openai/gpt-oss-120b", 
+    "reasoning": "llama-3.3-70b-versatile",
+    "teaching": "meta-llama/llama-4-maverick-17b-128e-instruct"
+}
 
 # Redis
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")

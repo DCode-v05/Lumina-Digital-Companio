@@ -3,6 +3,9 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Sparkles, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { sendMessage, getHistory, getMe, getChats, createChat, deleteChat, ChatSession, getProfile } from './api';
 import './index.css';
 
@@ -13,7 +16,15 @@ import { ThemeToggle } from './components/ThemeToggle';
 interface Message {
     role: 'user' | 'model';
     content: string;
+    mode?: string;
 }
+
+const MODE_BADGES: Record<string, { label: string, color: string }> = {
+    primary: { label: 'Friend', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+    academic: { label: 'Research Guide', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20' },
+    reasoning: { label: 'Problem Solver', color: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
+    teaching: { label: 'Tutor', color: 'bg-green-500/10 text-green-500 border-green-500/20' },
+};
 
 
 // Simple Toast Component
@@ -179,6 +190,9 @@ function ConfirmationModal({ isOpen, onClose, onConfirm, title, message }: { isO
     );
 }
 
+// --- Modes ---
+
+
 function ProtectedRoute({ children }: { children: JSX.Element }) {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -198,6 +212,8 @@ function ChatInterface() {
     const [showSuccessToast, setShowSuccessToast] = useState(false);
     const [deleteId, setDeleteId] = useState<string | null>(null); // State for modal
     const [showProfileModal, setShowProfileModal] = useState(false);
+
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const navigate = useNavigate();
@@ -318,7 +334,7 @@ function ChatInterface() {
                 // We don't wait for state update to be reliable immediately in same scope usually, 
                 // but let's assume valid ID for API call
                 const data = await sendMessage(newChat.id, userMsg);
-                setMessages(prev => [...prev, { role: 'model', content: data.response }]);
+                setMessages(prev => [...prev, { role: 'model', content: data.response, mode: data.mode }]);
 
                 // Update chat title if backend returned one
                 if (data.title) {
@@ -327,7 +343,7 @@ function ChatInterface() {
                 setChats([newChat, ...chats]); // Update list
             } else {
                 const data = await sendMessage(currentChatId, userMsg);
-                setMessages(prev => [...prev, { role: 'model', content: data.response }]);
+                setMessages(prev => [...prev, { role: 'model', content: data.response, mode: data.mode }]);
             }
         } catch (error) {
             console.error(error);
@@ -493,15 +509,56 @@ function ChatInterface() {
                                     </div>
                                 )}
 
-                                <div
-                                    className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm transition-colors ${msg.role === 'user'
-                                        ? 'bg-primary text-white rounded-br-none'
-                                        : 'bg-surface text-text rounded-bl-none' /* Removed border border-border */
-                                        }`}
-                                >
-                                    <ReactMarkdown className="prose dark:prose-invert prose-sm md:prose-base max-w-none">
-                                        {msg.content}
-                                    </ReactMarkdown>
+                                <div className="flex flex-col gap-1 max-w-[85%] md:max-w-[75%]">
+                                    {msg.role === 'model' && msg.mode && MODE_BADGES[msg.mode] && (
+                                        <div className={`self-start text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded border ${MODE_BADGES[msg.mode].color}`}>
+                                            {MODE_BADGES[msg.mode].label}
+                                        </div>
+                                    )}
+                                    <div
+                                        className={`rounded-2xl px-5 py-4 text-sm leading-relaxed shadow-sm transition-colors ${msg.role === 'user'
+                                            ? 'bg-primary text-white rounded-br-none'
+                                            : 'bg-surface text-text rounded-bl-none border border-border/50'
+                                            }`}
+                                    >
+                                        <ReactMarkdown
+                                            className="prose dark:prose-invert prose-sm md:prose-base max-w-none break-words"
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                code({ node, inline, className, children, ...props }: any) {
+                                                    const match = /language-(\w+)/.exec(className || '')
+                                                    return !inline && match ? (
+                                                        <SyntaxHighlighter
+                                                            {...props}
+                                                            style={oneDark}
+                                                            language={match[1]}
+                                                            PreTag="div"
+                                                            className="rounded-md !bg-zinc-900 border border-white/10 my-2 overflow-x-auto"
+                                                        >
+                                                            {String(children).replace(/\n$/, '')}
+                                                        </SyntaxHighlighter>
+                                                    ) : (
+                                                        <code {...props} className={`${className} bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded`}>
+                                                            {children}
+                                                        </code>
+                                                    )
+                                                },
+                                                table: ({ node, ...props }) => (
+                                                    <div className="overflow-x-auto my-4 border border-border rounded-lg">
+                                                        <table className="min-w-full divide-y divide-border" {...props} />
+                                                    </div>
+                                                ),
+                                                th: ({ node, ...props }) => (
+                                                    <th className="px-4 py-2 bg-input/50 text-left text-xs font-medium text-muted uppercase tracking-wider" {...props} />
+                                                ),
+                                                td: ({ node, ...props }) => (
+                                                    <td className="px-4 py-2 text-sm border-t border-border/50" {...props} />
+                                                )
+                                            }}
+                                        >
+                                            {msg.content}
+                                        </ReactMarkdown>
+                                    </div>
                                 </div>
 
                                 {msg.role === 'user' && (
@@ -561,7 +618,7 @@ function ChatInterface() {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
 
