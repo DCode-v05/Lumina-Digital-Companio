@@ -348,7 +348,6 @@ function ChatInterface() {
                 e.preventDefault();
                 handleSend();
             }
-            // Allow default behavior for Shift+Enter (new line)
         }
     };
 
@@ -538,15 +537,12 @@ function ChatInterface() {
                         <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-secondary/50 rounded-xl opacity-10 group-hover:opacity-20 transition blur-lg"></div>
                         <div className="relative flex items-center bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-none shadow-xl transition-all">
                             <textarea
-                                // ref={inputRef} 
-                                // Ref needs to be cast to TextAreaElement now, but the original was InputElement. 
-                                // Ideally we update the ref type, but for now we can just use autoFocus logic differently or cast.
                                 ref={inputRef as any}
                                 value={input}
                                 autoFocus
                                 onChange={handleInputResize}
                                 onKeyDown={handleKeyDown}
-                                placeholder="Ask anything about your studies... (Shift+Enter for new line)"
+                                placeholder="Ask anything about your studies..."
                                 className="flex-1 bg-transparent px-6 py-4 outline-none text-text placeholder-muted resize-none max-h-48 overflow-y-auto"
                                 disabled={loading}
                                 rows={1}

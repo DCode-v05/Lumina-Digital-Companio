@@ -11,6 +11,7 @@ from redis_client import (
     get_user_profile, update_user_profile
 )
 from gemini_client import get_ai_response, generate_chat_title
+import emotion_service
 
 
 
@@ -166,20 +167,38 @@ def get_user_profile_endpoint(current_user: models.User = Depends(auth.get_curre
 @app.post("/chat", response_model=schemas.ChatResponse)
 def chat_endpoint(
     request: schemas.ChatRequest,
-    current_user: models.User = Depends(auth.get_current_user)
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
 ):
     user_id = str(current_user.id)
     chat_id = request.chat_id
     user_message = request.message
     
+    # --- Emotion Tracking ---
+    # 1. Analyze and Log current emotion
+    emotion, score = emotion_service.analyze_emotion(user_message)
+    if emotion:
+        # We need integer ID for database logging, assuming user.id is int in DB model.
+        # However, our auth system treats IDs as strings often, but in models.py User.id is Integer.
+        # current_user.id comes from models.User so it should be int.
+        emotion_service.log_emotion(db, current_user.id, emotion, score)
+    
+    # 2. Get Recent Emotion Context
+    emotion_summary = emotion_service.get_recent_emotions_summary(db, current_user.id)
+    
     # 0. Get User Profile Context
     user_profile = get_user_profile(user_id)
+    
+    # Combine Profile + Emotion for context
+    combined_context = user_profile
+    if emotion_summary:
+        combined_context = (combined_context or "") + "\n\n" + emotion_summary
 
     # 1. Get History (for specific chat)
     history = get_chat_history(chat_id)
     
-    # 2. Get AI Response (with profile context)
-    ai_text, title_from_ai, new_facts = get_ai_response(history, user_message, user_profile)
+    # 2. Get AI Response (with combined context)
+    ai_text, title_from_ai, new_facts = get_ai_response(history, user_message, combined_context)
     
     # 3. Save Context
     add_message(chat_id, "user", user_message)
