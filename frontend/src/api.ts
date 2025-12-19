@@ -69,6 +69,11 @@ export const getProfile = async () => {
     return response.data; // { profile_text: string, facts: string[] }
 }
 
+export const updateProfile = async (profileText: string) => {
+    const response = await axios.put(`${API_URL}/users/me/profile`, { profile_text: profileText });
+    return response.data;
+}
+
 // --- Chat Management ---
 
 export const createChat = async (title: string = "New Chat") => {

@@ -159,6 +159,15 @@ def get_user_profile_endpoint(current_user: models.User = Depends(auth.get_curre
     facts = [line.strip() for line in profile.split('\n') if line.strip()] if profile else []
     return {"profile_text": profile, "facts": facts}
 
+@app.put("/users/me/profile")
+def update_user_profile_endpoint(
+    request: schemas.UpdateProfileRequest,
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    user_id = str(current_user.id)
+    update_user_profile(user_id, request.profile_text)
+    return {"status": "updated", "profile_text": request.profile_text}
+
 
 # ----------------------------
 # Chat Interaction Routes
@@ -195,7 +204,12 @@ def chat_endpoint(
     history = get_chat_history(chat_id)
     
     # Get AI Response (with combined context)
-    ai_text, title_from_ai, new_facts, mode = get_ai_response(history, user_message, combined_context)
+    ai_text, title_from_ai, new_facts, mode = get_ai_response(
+        history, 
+        user_message, 
+        combined_context,
+        user_name=current_user.full_name
+    )
     
     # Save Context
     add_message(chat_id, "user", user_message)

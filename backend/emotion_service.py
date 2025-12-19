@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 try:
     classifier = pipeline(
         "text-classification", 
-        model="bhadresh-savani/distilbert-base-uncased-emotion", 
+        model="j-hartmann/emotion-english-distilroberta-base", 
         return_all_scores=True
     )
     print("✅ Emotion analysis model loaded successfully")

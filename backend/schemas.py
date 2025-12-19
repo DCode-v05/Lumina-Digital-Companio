@@ -42,3 +42,6 @@ class ChatResponse(BaseModel):
     chat_id: str
     title: Optional[str] = None
     mode: str
+
+class UpdateProfileRequest(BaseModel):
+    profile_text: str

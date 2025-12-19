@@ -4,9 +4,12 @@ import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Sparkles, 
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { sendMessage, getHistory, getMe, getChats, createChat, deleteChat, ChatSession, getProfile } from './api';
+import { sendMessage, getHistory, getMe, getChats, createChat, deleteChat, ChatSession, getProfile, updateProfile } from './api';
 import './index.css';
 
 import Login from './pages/Login';
@@ -53,12 +56,29 @@ function Toast({ message, onClose }: { message: string, onClose: () => void }) {
 function ProfileModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
     const [facts, setFacts] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
+    const [factToDelete, setFactToDelete] = useState<number | null>(null);
 
     useEffect(() => {
         if (isOpen) {
             loadProfile();
         }
     }, [isOpen]);
+
+    const confirmDeleteFact = async () => {
+        if (factToDelete === null) return;
+
+        const newFacts = facts.filter((_, i) => i !== factToDelete);
+        setFacts(newFacts); // Optimistic update
+        setFactToDelete(null); // Close modal
+
+        try {
+            const newProfileText = newFacts.join('\n');
+            await updateProfile(newProfileText);
+        } catch (e) {
+            console.error("Failed to delete fact", e);
+            // In a real app, might want to revert UI here
+        }
+    }
 
     const loadProfile = async () => {
         setLoading(true);
@@ -114,10 +134,19 @@ function ProfileModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => voi
                                         initial={{ opacity: 0, x: -10 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         transition={{ delay: index * 0.05 }}
-                                        className="flex gap-3 text-sm text-text bg-input/50 p-3 rounded-lg border border-border/50"
+                                        className="flex items-start justify-between gap-3 text-sm text-text bg-input/50 p-3 rounded-lg border border-border/50 group"
                                     >
-                                        <div className="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 flex-shrink-0" />
-                                        <span>{fact}</span>
+                                        <div className="flex gap-3">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 flex-shrink-0" />
+                                            <span>{fact}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setFactToDelete(index)}
+                                            className="opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-red-400 transition-all"
+                                            title="Forget this memory"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
                                     </motion.li>
                                 ))}
                             </ul>
@@ -139,7 +168,15 @@ function ProfileModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => voi
                     </div>
                 </motion.div>
             </motion.div>
-        </AnimatePresence>
+
+            <ConfirmationModal
+                isOpen={factToDelete !== null}
+                onClose={() => setFactToDelete(null)}
+                onConfirm={confirmDeleteFact}
+                title="Forget Memory?"
+                message="Are you sure you want Lumina to forget this fact about you? This user context will be permanently removed."
+            />
+        </AnimatePresence >
     );
 }
 
@@ -523,8 +560,17 @@ function ChatInterface() {
                                     >
                                         <ReactMarkdown
                                             className="prose dark:prose-invert prose-sm md:prose-base max-w-none break-words"
-                                            remarkPlugins={[remarkGfm]}
+                                            remarkPlugins={[remarkGfm, remarkMath]}
+                                            rehypePlugins={[rehypeKatex]}
                                             components={{
+                                                a: ({ node, ...props }) => (
+                                                    <a
+                                                        {...props}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-500 hover:underline cursor-pointer transition-colors"
+                                                    />
+                                                ),
                                                 code({ node, inline, className, children, ...props }: any) {
                                                     const match = /language-(\w+)/.exec(className || '')
                                                     return !inline && match ? (
