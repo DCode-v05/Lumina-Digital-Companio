@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Text
 from sqlalchemy.sql import func
 from database import Base
 
@@ -19,3 +19,25 @@ class EmotionLog(Base):
     emotion = Column(String)
     score = Column(Float)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+class Goal(Base):
+    __tablename__ = "goals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String)
+    description = Column(String, nullable=True)
+    duration = Column(Integer)
+    duration_unit = Column(String)  # 'days', 'weeks', 'months'
+    priority = Column(String)  # 'High', 'Medium', 'Low'
+    status = Column(String, default="not_started")  # 'not_started', 'in_progress', 'completed'
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    subtasks = Column(Text, nullable=True)  # JSON string of subtasks
+
+class UserFact(Base):
+    __tablename__ = "user_facts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    fact_text = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

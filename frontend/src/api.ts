@@ -105,3 +105,44 @@ export const getHistory = async (chatId: string) => {
     const response = await axios.get(`${API_URL}/chats/${chatId}/history`);
     return response.data;
 };
+
+// --- Goals ---
+
+export interface Goal {
+    id: number;
+    title: string;
+    description: string;
+    duration: number;
+    duration_unit: string;
+    priority: string;
+    status: string;
+    created_at: string;
+    subtasks: string; // JSON string
+}
+
+export const getGoals = async () => {
+    const response = await axios.get(`${API_URL}/goals`);
+    return response.data; // Goal[]
+}
+
+export const createGoal = async (goal: Omit<Goal, 'id' | 'created_at' | 'status'>) => {
+    const response = await axios.post(`${API_URL}/goals`, goal);
+    return response.data;
+}
+
+export const updateGoal = async (id: number, updates: Partial<Goal>) => {
+    const response = await axios.put(`${API_URL}/goals/${id}`, updates);
+    return response.data;
+}
+
+export const deleteGoal = async (id: number) => {
+    const response = await axios.delete(`${API_URL}/goals/${id}`);
+    return response.data;
+}
+
+export const decomposeGoal = async (id: number, breakdownType: 'daily' | 'weekly' = 'daily') => {
+    const response = await axios.post(`${API_URL}/goals/${id}/decompose`, null, {
+        params: { breakdown_type: breakdownType }
+    });
+    return response.data;
+}

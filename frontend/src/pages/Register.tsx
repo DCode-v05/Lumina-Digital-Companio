@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { register } from '../api';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Brain, Loader2 } from 'lucide-react';
 
 export default function Register() {
     const [email, setEmail] = useState('');
@@ -32,7 +32,7 @@ export default function Register() {
             <div className="w-full max-w-md space-y-8 rounded-2xl border border-border bg-surface p-8 shadow-2xl transition-colors">
                 <div className="text-center">
                     <div className="mx-auto w-12 h-12 rounded-full bg-secondary/20 flex items-center justify-center text-secondary mb-4">
-                        <Sparkles className="w-6 h-6" />
+                        <Brain className="w-6 h-6" />
                     </div>
                     <h2 className="text-3xl font-bold tracking-tight text-text mb-2">Create Account</h2>
                     <p className="text-sm text-muted">Join Lumina and start learning smarter</p>

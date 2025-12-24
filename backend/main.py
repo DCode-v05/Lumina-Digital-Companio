@@ -10,7 +10,8 @@ from redis_client import (
     create_chat, get_user_chats, delete_chat_session, update_chat_title,
     get_user_profile, update_user_profile
 )
-from groq_service import get_ai_response, generate_chat_title
+from groq_service import get_ai_response, generate_chat_title, decompose_goal
+import json
 import emotion_service
 
 
@@ -141,6 +142,70 @@ def list_user_chats(current_user: models.User = Depends(auth.get_current_user)):
     user_id = str(current_user.id)
     return get_user_chats(user_id)
 
+# ----------------------------
+# Goal Management Routes
+# ----------------------------
+
+@app.post("/goals", response_model=schemas.Goal)
+def create_goal(goal: schemas.GoalCreate, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    db_goal = models.Goal(**goal.dict(), user_id=current_user.id)
+    # Ensure subtasks is valid JSON text if provided
+    if not db_goal.subtasks:
+         db_goal.subtasks = json.dumps([])
+    db.add(db_goal)
+    db.commit()
+    db.refresh(db_goal)
+    return db_goal
+
+@app.get("/goals", response_model=list[schemas.Goal])
+def read_goals(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    goals = db.query(models.Goal).filter(models.Goal.user_id == current_user.id).all()
+    return goals
+
+@app.put("/goals/{goal_id}", response_model=schemas.Goal)
+def update_goal(goal_id: int, goal: schemas.GoalUpdate, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    db_goal = db.query(models.Goal).filter(models.Goal.id == goal_id, models.Goal.user_id == current_user.id).first()
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    
+    update_data = goal.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_goal, key, value)
+    
+    db.commit()
+    db.refresh(db_goal)
+    return db_goal
+
+@app.delete("/goals/{goal_id}")
+def delete_goal(goal_id: int, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    db_goal = db.query(models.Goal).filter(models.Goal.id == goal_id, models.Goal.user_id == current_user.id).first()
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    
+    db.delete(db_goal)
+    db.commit()
+    return {"status": "deleted"}
+
+@app.post("/goals/{goal_id}/decompose", response_model=schemas.Goal)
+def decompose_goal_endpoint(
+    goal_id: int, 
+    breakdown_type: str = "daily", 
+    current_user: models.User = Depends(auth.get_current_user), 
+    db: Session = Depends(get_db)
+):
+    db_goal = db.query(models.Goal).filter(models.Goal.id == goal_id, models.Goal.user_id == current_user.id).first()
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    
+    # Call AI
+    subtasks_list = decompose_goal(db_goal.title, db_goal.duration, db_goal.duration_unit, breakdown_type)
+    
+    # Update DB
+    db_goal.subtasks = json.dumps(subtasks_list)
+    db.commit()
+    db.refresh(db_goal)
+    return db_goal
+
 @app.delete("/chats/{chat_id}")
 def delete_chat_endpoint(
     chat_id: str,
@@ -183,6 +248,10 @@ def chat_endpoint(
     chat_id = request.chat_id
     user_message = request.message
     
+    # Clean expired memories on every interaction (or could be moved to specific login hooks)
+    from redis_client import clean_expired_facts
+    clean_expired_facts(user_id)
+    
     # --- Emotion Tracking ---
     # Analyze and Log current emotion
     emotion, score = emotion_service.analyze_emotion(user_message)
@@ -204,7 +273,7 @@ def chat_endpoint(
     history = get_chat_history(chat_id)
     
     # Get AI Response (with combined context)
-    ai_text, title_from_ai, new_facts, mode = get_ai_response(
+    ai_text, title_from_ai, new_facts, mode, suggested_goal = get_ai_response(
         history, 
         user_message, 
         combined_context,
@@ -216,11 +285,76 @@ def chat_endpoint(
     add_message(chat_id, "model", ai_text)
     
     # Update Profile (Directly from response)
+    memory_updated = False
     if new_facts:
-        print(f"📝 Learning new facts about user {user_id}: {new_facts}")
+        # Ensure new_facts is a string
+        if isinstance(new_facts, dict):
+            new_facts_str = "\n".join([f"{k}: {v}" for k, v in new_facts.items()])
+        elif isinstance(new_facts, list):
+             new_facts_str = "\n".join([str(f) for f in new_facts])
+        else:
+            new_facts_str = str(new_facts)
+
         # Append new facts to existing profile
-        updated_profile = user_profile + "\n" + new_facts if user_profile else new_facts
-        update_user_profile(user_id, updated_profile)
+        if not user_profile or new_facts_str not in user_profile:
+             updated_profile = user_profile + "\n" + new_facts_str if user_profile else new_facts_str
+             update_user_profile(user_id, updated_profile)
+             memory_updated = True
+
+    # Auto-Create Goal
+    created_goal_title = None
+    if suggested_goal:
+        print(f"🎯 Auto-creating goal input: {suggested_goal}")
+        try:
+            # Handle case where AI returns just a string instead of dict
+            if isinstance(suggested_goal, str):
+                import re
+                # Try to extract duration from the string itself as a fallback
+                title_text = suggested_goal
+                duration = 7
+                unit = "days"
+                
+                # Regex for "1 week", "2 days", etc.
+                match = re.search(r'(\d+)\s*(day|week|month)s?', title_text, re.IGNORECASE)
+                if match:
+                    try:
+                        duration = int(match.group(1))
+                        unit_str = match.group(2).lower()
+                        if "day" in unit_str: unit = "days"
+                        elif "week" in unit_str: unit = "weeks"
+                        elif "month" in unit_str: unit = "months"
+                        
+                        # Convert weeks/months to days for consistency if preferred, 
+                        # but our model supports units, so keep them.
+                    except:
+                        pass
+
+                goal_data = {
+                    "title": title_text,
+                    "duration": duration,
+                    "duration_unit": unit,
+                    "priority": "Medium"
+                }
+            elif isinstance(suggested_goal, dict):
+                 goal_data = suggested_goal
+            else:
+                 raise ValueError("Invalid format for suggested_goal")
+
+            created_goal_title = goal_data.get("title", "New Goal")
+            new_goal = models.Goal(
+                user_id=current_user.id,
+                title=created_goal_title,
+                duration=goal_data.get("duration", 7),
+                duration_unit=goal_data.get("duration_unit", "days"),
+                priority=goal_data.get("priority", "Medium"),
+                description="Auto-generated from chat conversation",
+                subtasks=json.dumps([])
+            )
+            db.add(new_goal)
+            db.commit()
+        except Exception as e:
+            print(f"❌ Failed to auto-create goal: {e}")
+            created_goal_title = None
 
     # Generate Title (if it's the first message)
     new_title = None
@@ -233,7 +367,14 @@ def chat_endpoint(
         
         update_chat_title(user_id, chat_id, new_title)
 
-    return schemas.ChatResponse(response=ai_text, chat_id=chat_id, title=new_title, mode=mode)
+    return schemas.ChatResponse(
+        response=ai_text, 
+        chat_id=chat_id, 
+        title=new_title, 
+        mode=mode,
+        memory_updated=memory_updated,
+        goal_created=created_goal_title
+    )
 
 @app.get("/chats/{chat_id}/history")
 def get_chat_history_endpoint(

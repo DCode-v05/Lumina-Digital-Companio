@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
+from datetime import datetime
 
 # User Schemas
 class UserBase(BaseModel):
@@ -42,6 +43,38 @@ class ChatResponse(BaseModel):
     chat_id: str
     title: Optional[str] = None
     mode: str
+    memory_updated: bool = False
+    goal_created: Optional[str] = None
 
 class UpdateProfileRequest(BaseModel):
     profile_text: str
+
+# Goal Schemas
+class GoalBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    duration: int
+    duration_unit: str
+    priority: str
+
+class GoalCreate(GoalBase):
+    subtasks: Optional[str] = None
+
+class GoalUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    duration: Optional[int] = None
+    duration_unit: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+    subtasks: Optional[str] = None
+
+class Goal(GoalBase):
+    id: int
+    user_id: int
+    status: str
+    created_at: datetime
+    subtasks: Optional[str] = None
+
+    class Config:
+        from_attributes = True

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../api';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Brain, Loader2 } from 'lucide-react';
+
 
 export default function Login() {
     const [email, setEmail] = useState('');
@@ -32,7 +33,7 @@ export default function Login() {
             <div className="w-full max-w-md space-y-8 rounded-2xl border border-border bg-surface p-8 shadow-2xl transition-colors">
                 <div className="text-center">
                     <div className="mx-auto w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center text-primary mb-4">
-                        <Sparkles className="w-6 h-6" />
+                        <Brain className="w-6 h-6" />
                     </div>
                     <h2 className="text-3xl font-bold tracking-tight text-text mb-2">Welcome back</h2>
                     <p className="text-sm text-muted">Sign in to continue your learning journey</p>

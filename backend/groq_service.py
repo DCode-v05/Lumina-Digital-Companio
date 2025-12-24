@@ -84,7 +84,13 @@ The JSON structure must be:
 {
   "title": "...",          // Generate ONLY for the highly first message of a new chat. Otherwise null.
   "response": "...",       // The assistant's natural language response to the user.
-  "new_user_facts": "..."  // Extract any NEW, PERMANENT facts about the user from THIS message (e.g., "User studies CS"). If none, use null.
+  "new_user_facts": ["..."], // List of new, PERMANENT facts about the user. If none, use null.
+  "suggested_goal": {       // Extract ONLY if the user explicitly wants to achieve something over time. Defaults to null.
+      "title": "...",
+      "duration": 30,
+      "duration_unit": "days", // 'days', 'weeks', 'months'
+      "priority": "High"       // 'High', 'Medium', 'Low'
+  } // MUST be an object. NEVER a string.
 }
 
 Detailed Instructions:
@@ -102,11 +108,28 @@ Detailed Instructions:
 
 3. "new_user_facts":
    - Analyze the CURRENT user message.
-   - specific facts about the USER? (e.g., "User is struggling with Arrays", "User's name is Deni", "User is interested in Machine Learning").
-   - STRICTLY FORBIDDEN: Do not extract general definitions or facts about the topic (e.g., "Machine Learning is..."). 
-   - Only return facts that describe the user's state, preferences, or identity.
-   - If message is generic or just asks a question, return null.
-   - DO NOT repeat facts already in "User Profile Context".
+   - Extract ONLY explicit, long-term facts related to **ACADEMICS, STUDY HABITS, or LEARNING BEHAVIOR**.
+   - **VALID Extraction Categories:**
+     - **Identity:** Major, Degree, University (e.g. "I study CSE at KCT").
+     - **Goals:** Career aspirations, specific academic targets (e.g. "I want to be an AI Engineer").
+     - **Learning Style:** Visual/Auditory learner, prefers examples, likes theory first.
+     - **Behavior/Challenges:** Anxiety, procrastination, stress triggers, focus issues (e.g. "I get anxious before exams").
+   - **INVALID Extraction (DO NOT SAVE):**
+     - General likes/dislikes unrelated to study (e.g. "I like pizza").
+     - Temporary states (e.g. "I am tired today").
+     - Factoid queries (e.g. "What is Python?").
+     - **Inferences/Unknowns:** DO NOT store what you *don't* know (e.g. "has unknown experience", "no prior knowledge mentioned").
+     - **Negative assumptions:** If user doesn't mention something, do NOT record it as missing.
+   - **CRITICAL REDUNDANCY CHECK:**
+     - The current "User Profile Context" is provided to you.
+     - **DO NOT** return any fact that is effectively already present in the Context.
+     - Example: If Context has "User is a CSE student", and user says "I am studying CSE", return null.
+     - Only return **NEW** or **UPDATED** information.
+   - Extract ONLY if the user explicitly wants to achieve something AND includes a specific timeframe.
+   - **CRITICAL:** Start a goal ONLY if the user includes a duration (e.g. "in 2 weeks", "by Friday").
+   - If user says "I want to learn Python" (no time), do NOT create a goal. Return null.
+   - **CRITICAL:** `suggested_goal` must be a JSON Object (curly braces), NOT a string.
+   - Example "I want to learn Python in 2 weeks": { "title": "Learn Python", "duration": 14, "duration_unit": "days", "priority": "High" }
 
 Boundaries:
 - Do not shame, pressure, or compare students to others.
@@ -115,6 +138,11 @@ Boundaries:
 
 Overall Goal:
 Help students feel understood, capable, and supported, while guiding them toward clarity, confidence, and long-term academic growth.
+
+SAFETY & COMPLIANCE:
+1. JSON ONLY: Your entire output must be valid JSON.
+2. GOAL FORMAT: 'suggested_goal' must be a DICTIONARY (Object) or null. NEVER return a string for this field.
+3. FACT CHECK: 'new_user_facts' must be only explicit academic/behavioral traits. Do not infer unknowns or negative facts.
 """
 
 ACADEMIC_INSTRUCTION = """
@@ -145,8 +173,14 @@ Output Format Rules (Mandatory):
 {
   "title": "...",
   "response": "...",
-  "new_user_facts": "..." // STRICTLY only facts describing the USER (e.g. "User is researching ML"). NEVER definitions of topics.
+  "new_user_facts": "...",
+  "suggested_goal": { "title": "...", "duration": 7, "duration_unit": "days", "priority": "Medium" } // MUST be an object. NEVER a string. Return null if no goal.
 }
+
+SAFETY & COMPLIANCE:
+1. JSON ONLY: Your entire output must be valid JSON.
+2. GOAL FORMAT: 'suggested_goal' must be a DICTIONARY (Object) or null. NEVER return a string for this field.
+3. FACT CHECK: 'new_user_facts' must be only explicit academic/behavioral traits. Do not infer unknowns or negative facts.
 """
 
 REASONING_INSTRUCTION = """
@@ -176,8 +210,14 @@ Output Format Rules (Mandatory):
 {
   "title": "...",
   "response": "...",
-  "new_user_facts": "..." // STRICTLY only facts describing the USER. NEVER definitions or math rules.
+  "new_user_facts": "...",
+  "suggested_goal": { "title": "...", "duration": 7, "duration_unit": "days", "priority": "Medium" } // MUST be an object. NEVER a string. Return null if no goal.
 }
+
+SAFETY & COMPLIANCE:
+1. JSON ONLY: Your entire output must be valid JSON.
+2. GOAL FORMAT: 'suggested_goal' must be a DICTIONARY (Object) or null. NEVER return a string for this field.
+3. FACT CHECK: 'new_user_facts' must be only explicit academic/behavioral traits. Do not infer unknowns or negative facts.
 """
 
 TEACHING_INSTRUCTION = """
@@ -209,8 +249,14 @@ Output Format Rules (Mandatory):
 {
   "title": "...",
   "response": "...",
-  "new_user_facts": "..." // STRICTLY only facts describing the USER. NEVER definitions.
+  "new_user_facts": "...",
+  "suggested_goal": { "title": "...", "duration": 7, "duration_unit": "days", "priority": "Medium" } // MUST be an object. NEVER a string. Return null if no goal.
 }
+
+SAFETY & COMPLIANCE:
+1. JSON ONLY: Your entire output must be valid JSON.
+2. GOAL FORMAT: 'suggested_goal' must be a DICTIONARY (Object) or null. NEVER return a string for this field.
+3. FACT CHECK: 'new_user_facts' must be only explicit academic/behavioral traits. Do not infer unknowns or negative facts.
 """
 
 SYSTEM_INSTRUCTIONS = {
@@ -359,16 +405,59 @@ def get_ai_response(history, user_message, user_profile="", user_name=None):
             final_response = data.get("response", text)
             extracted_title = data.get("title")
             new_facts = data.get("new_user_facts")
+            suggested_goal = data.get("suggested_goal")
 
         except json.JSONDecodeError:
             print("JSON Parse Failed in get_ai_response. Raw text:", text[:100])
             final_response = text
+            suggested_goal = None
 
-        return final_response, extracted_title, new_facts, detected_mode
+        return final_response, extracted_title, new_facts, detected_mode, suggested_goal
 
     except Exception as e:
         print(f"Error calling Groq: {e}")
-        return "I'm having trouble connecting to my brain right now.", None, None, "primary"
+        return "I'm having trouble connecting to my brain right now.", None, None, "primary", None
 
 def generate_chat_title(user_message):
     return user_message[:30] + "..." if len(user_message) > 30 else user_message
+
+def decompose_goal(title, duration, duration_unit, breakdown_type="daily"):
+    """
+    Decomposes a goal into subtasks based on duration and preferred breakdown.
+    breakdown_type: 'daily' or 'weekly'
+    """
+    try:
+        # Determine the granularity instruction
+        granularity = "day" if breakdown_type == "daily" else "week"
+        
+        prompt = f"""
+        You are an expert planner. The user has a goal: "{title}" to be completed in {duration} {duration_unit}.
+        Create a detailed, step-by-step roadmap broken down by {granularity}.
+        
+        Rules:
+        1. If breakdown is 'daily', labels tasks "Day 1:", "Day 2:", etc.
+        2. If breakdown is 'weekly', label tasks "Week 1:", "Week 2:", etc.
+        3. Ensure the timeline fits exactly within {duration} {duration_unit}.
+        
+        Return strictly a JSON object with a key "subtasks" containing a list of objects.
+        Each object must have:
+        - "text": The task description (including the Day/Week label)
+        - "completed": false (always boolean false)
+        
+        Example: {{ "subtasks": [ {{ "text": "Day 1: Setup env", "completed": false }} ] }}
+        """
+        
+        completion = client.chat.completions.create(
+            model=MODEL_CONFIG["reasoning"],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            response_format={"type": "json_object"}
+        )
+        
+        text = completion.choices[0].message.content.strip()
+        data = json.loads(text)
+        return data.get("subtasks", [])
+        
+    except Exception as e:
+        print(f"⚠️ Goal decomposition failed: {e}")
+        return [{"text": "Could not decompose goal automatically.", "completed": False}]

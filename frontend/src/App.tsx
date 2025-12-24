@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Sparkles, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Brain, LogOut, PanelLeftClose, PanelLeftOpen, Target } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +10,7 @@ import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { sendMessage, getHistory, getMe, getChats, createChat, deleteChat, ChatSession, getProfile, updateProfile } from './api';
+import { GoalDashboard } from './components/GoalDashboard';
 import './index.css';
 
 import Login from './pages/Login';
@@ -45,7 +46,7 @@ function Toast({ message, onClose }: { message: string, onClose: () => void }) {
                 exit={{ opacity: 0, y: -20 }}
                 className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-green-500/90 backdrop-blur text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3 font-medium text-sm"
             >
-                <Sparkles className="w-4 h-4" />
+                <Brain className="w-4 h-4" />
                 <span>{message}</span>
             </motion.div>
         </AnimatePresence>
@@ -247,9 +248,12 @@ function ChatInterface() {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [userData, setUserData] = useState<{ full_name: string } | null>(null);
     const [showSuccessToast, setShowSuccessToast] = useState(false);
-    const [deleteId, setDeleteId] = useState<string | null>(null); // State for modal
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
     const [showProfileModal, setShowProfileModal] = useState(false);
 
+    // New View State
+    const [activeView, setActiveView] = useState<'chat' | 'goals'>('chat');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -301,7 +305,8 @@ function ChatInterface() {
     const selectChat = async (id: string | null) => {
         if (!id) return;
         setCurrentChatId(id);
-        setMessages([]); // Clear previous view
+        setActiveView('chat'); // Switch back to chat
+        setMessages([]);
         try {
             const history = await getHistory(id);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -318,6 +323,7 @@ function ChatInterface() {
     const handleNewChat = () => {
         setCurrentChatId(null);
         setMessages([]);
+        setActiveView('chat'); // Switch back to chat on new chat
     }
 
     const handleDeleteClick = (e: React.MouseEvent, id: string) => {
@@ -373,6 +379,17 @@ function ChatInterface() {
                 const data = await sendMessage(newChat.id, userMsg);
                 setMessages(prev => [...prev, { role: 'model', content: data.response, mode: data.mode }]);
 
+                // Show Notifications based on flags
+                if (data.memory_updated) {
+                    // Using a separate simple global toast or just reuse the existing one with a custom message
+                    // For now, let's reuse the success toast logic slightly modified or add a new state
+                    // Since we only have 'showSuccessToast', let's add a dynamic toast state
+                    setToastMessage("Memory updated with new facts!");
+                }
+                if (data.goal_created) {
+                    setToastMessage(`Goal created: ${data.goal_created}`);
+                }
+
                 // Update chat title if backend returned one
                 if (data.title) {
                     newChat.title = data.title;
@@ -381,6 +398,13 @@ function ChatInterface() {
             } else {
                 const data = await sendMessage(currentChatId, userMsg);
                 setMessages(prev => [...prev, { role: 'model', content: data.response, mode: data.mode }]);
+
+                if (data.memory_updated) {
+                    setToastMessage("Lumina remembered that!");
+                }
+                if (data.goal_created) {
+                    setToastMessage(`Goal created: ${data.goal_created}`);
+                }
             }
         } catch (error) {
             console.error(error);
@@ -412,7 +436,9 @@ function ChatInterface() {
 
     return (
         <div className="flex h-screen w-full bg-background text-text font-sans overflow-hidden">
+            {/* ... (Toasts and Modals) */}
             {showSuccessToast && <Toast message="Welcome back! Ready to learn?" onClose={() => setShowSuccessToast(false)} />}
+            {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
 
             <ConfirmationModal
                 isOpen={!!deleteId}
@@ -438,7 +464,7 @@ function ChatInterface() {
                     >
                         <div className="p-4 flex items-center justify-between border-b border-border dark:border-white/5">
                             <div className="flex items-center gap-2 text-primary font-bold text-xl">
-                                <Sparkles className="w-6 h-6" />
+                                <Brain className="w-6 h-6" />
                                 <span>Lumina</span>
                             </div>
                             <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1 text-muted hover:text-text">
@@ -446,13 +472,24 @@ function ChatInterface() {
                             </button>
                         </div>
 
-                        <div className="px-3 pb-2 pt-4">
+                        <div className="px-3 pb-2 pt-4 space-y-2">
                             <button
                                 onClick={handleNewChat}
                                 className="w-full flex items-center gap-2 p-3 rounded-lg bg-primary hover:bg-blue-600 text-white transition-all shadow-md active:scale-95"
                             >
                                 <PlusCircle className="w-4 h-4" />
-                                <span>New Chat</span>
+                                <span className="text-sm font-medium">New Chat</span>
+                            </button>
+
+                            <button
+                                onClick={() => setActiveView('goals')}
+                                className={`w-full flex items-center gap-2 p-3 rounded-lg transition-all ${activeView === 'goals'
+                                    ? 'bg-secondary text-white shadow-md'
+                                    : 'bg-input hover:bg-input/80 text-text'
+                                    }`}
+                            >
+                                <Target className="w-4 h-4" />
+                                <span className="text-sm font-medium">My Goals</span>
                             </button>
                         </div>
 
@@ -462,7 +499,7 @@ function ChatInterface() {
                                 <div
                                     key={chat.id}
                                     onClick={() => selectChat(chat.id)}
-                                    className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all ${currentChatId === chat.id
+                                    className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all ${currentChatId === chat.id && activeView === 'chat'
                                         ? 'bg-primary/10 text-primary '
                                         : 'hover:bg-input text-muted hover:text-text '
                                         }`}
@@ -481,6 +518,7 @@ function ChatInterface() {
                             ))}
                         </div>
 
+                        {/* User Profile Footer (Same as before) */}
                         <div className="p-4 border-t border-border dark:border-white/5 mt-auto">
                             <button
                                 onClick={() => setShowProfileModal(true)}
@@ -503,7 +541,7 @@ function ChatInterface() {
                 )}
             </AnimatePresence>
 
-            {/* Main Chat Area */}
+            {/* Main Content Area */}
             <div className="flex-1 flex flex-col relative bg-background h-screen">
                 <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none mix-blend-overlay"></div>
 
@@ -516,7 +554,7 @@ function ChatInterface() {
                             </button>
                         )}
                         <h1 className="text-lg font-medium text-text">
-                            {chats.find(c => c.id === currentChatId)?.title || 'Study Companion'}
+                            {activeView === 'goals' ? 'Goal Tracker' : (chats.find(c => c.id === currentChatId)?.title || 'Study Companion')}
                         </h1>
                     </div>
                     <div>
@@ -524,145 +562,154 @@ function ChatInterface() {
                     </div>
                 </header>
 
-                {/* Chat Stream */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scroll-smooth">
-                    <AnimatePresence>
-                        {messages.length === 0 && (
-                            <div className="h-full flex flex-col items-center justify-center text-muted opacity-50">
-                                <Sparkles className="w-12 h-12 mb-4" />
-                                <p>Start a conversation to begin learning.</p>
-                            </div>
-                        )}
-                        {messages.map((msg, idx) => (
-                            <motion.div
-                                key={idx}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                            >
-                                {msg.role === 'model' && (
-                                    <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center flex-shrink-0 border border-secondary/20 shadow-sm mt-1">
+                {activeView === 'goals' ? (
+                    <div className="flex-1 overflow-y-auto w-full max-w-5xl mx-auto md:p-8">
+                        <GoalDashboard />
+                    </div>
+                ) : (
+                    <>
+                        {/* Chat Stream */}
+                        <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scroll-smooth">
+                            {/* ... (Existing Chat Messages rendering) */}
+                            <AnimatePresence>
+                                {messages.length === 0 && (
+                                    <div className="h-full flex flex-col items-center justify-center text-muted opacity-50">
+                                        <Brain className="w-12 h-12 mb-4" />
+                                        <p>Start a conversation to begin learning.</p>
+                                    </div>
+                                )}
+                                {messages.map((msg, idx) => (
+                                    <motion.div
+                                        key={idx}
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                                    >
+                                        {msg.role === 'model' && (
+                                            <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center flex-shrink-0 border border-secondary/20 shadow-sm mt-1">
+                                                <Bot className="w-4 h-4 text-secondary" />
+                                            </div>
+                                        )}
+
+                                        <div className="flex flex-col gap-1 max-w-[85%] md:max-w-[75%]">
+                                            {msg.role === 'model' && msg.mode && MODE_BADGES[msg.mode] && (
+                                                <div className={`self-start text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded border ${MODE_BADGES[msg.mode].color}`}>
+                                                    {MODE_BADGES[msg.mode].label}
+                                                </div>
+                                            )}
+                                            <div
+                                                className={`rounded-2xl px-5 py-4 text-sm leading-relaxed shadow-sm transition-colors ${msg.role === 'user'
+                                                    ? 'bg-primary text-white rounded-br-none'
+                                                    : 'bg-surface text-text rounded-bl-none border border-border/50'
+                                                    }`}
+                                            >
+                                                <ReactMarkdown
+                                                    className="prose dark:prose-invert prose-sm md:prose-base max-w-none break-words"
+                                                    remarkPlugins={[remarkGfm, remarkMath]}
+                                                    rehypePlugins={[rehypeKatex]}
+                                                    components={{
+                                                        a: ({ node, ...props }) => (
+                                                            <a
+                                                                {...props}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="text-blue-500 hover:underline cursor-pointer transition-colors"
+                                                            />
+                                                        ),
+                                                        code({ node, inline, className, children, ...props }: any) {
+                                                            const match = /language-(\w+)/.exec(className || '')
+                                                            return !inline && match ? (
+                                                                <SyntaxHighlighter
+                                                                    {...props}
+                                                                    style={oneDark}
+                                                                    language={match[1]}
+                                                                    PreTag="div"
+                                                                    className="rounded-md !bg-zinc-900 border border-white/10 my-2 overflow-x-auto"
+                                                                >
+                                                                    {String(children).replace(/\n$/, '')}
+                                                                </SyntaxHighlighter>
+                                                            ) : (
+                                                                <code {...props} className={`${className} bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded`}>
+                                                                    {children}
+                                                                </code>
+                                                            )
+                                                        },
+                                                        table: ({ node, ...props }) => (
+                                                            <div className="overflow-x-auto my-4 border border-border rounded-lg">
+                                                                <table className="min-w-full divide-y divide-border" {...props} />
+                                                            </div>
+                                                        ),
+                                                        th: ({ node, ...props }) => (
+                                                            <th className="px-4 py-2 bg-input/50 text-left text-xs font-medium text-muted uppercase tracking-wider" {...props} />
+                                                        ),
+                                                        td: ({ node, ...props }) => (
+                                                            <td className="px-4 py-2 text-sm border-t border-border/50" {...props} />
+                                                        )
+                                                    }}
+                                                >
+                                                    {msg.content}
+                                                </ReactMarkdown>
+                                            </div>
+                                        </div>
+
+                                        {msg.role === 'user' && (
+                                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20 shadow-sm mt-1">
+                                                <User className="w-4 h-4 text-primary" />
+                                            </div>
+                                        )}
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+
+                            {loading && (
+                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4">
+                                    <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center border border-secondary/20 shadow-sm">
                                         <Bot className="w-4 h-4 text-secondary" />
                                     </div>
-                                )}
-
-                                <div className="flex flex-col gap-1 max-w-[85%] md:max-w-[75%]">
-                                    {msg.role === 'model' && msg.mode && MODE_BADGES[msg.mode] && (
-                                        <div className={`self-start text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded border ${MODE_BADGES[msg.mode].color}`}>
-                                            {MODE_BADGES[msg.mode].label}
+                                    <div className="bg-surface rounded-2xl rounded-bl-none px-6 py-4 shadow-sm flex items-center gap-3">
+                                        <span className="text-sm text-foreground/80 font-medium">Lumina is thinking</span>
+                                        <div className="flex space-x-1">
+                                            <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                                            <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                                            <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce"></span>
                                         </div>
-                                    )}
-                                    <div
-                                        className={`rounded-2xl px-5 py-4 text-sm leading-relaxed shadow-sm transition-colors ${msg.role === 'user'
-                                            ? 'bg-primary text-white rounded-br-none'
-                                            : 'bg-surface text-text rounded-bl-none border border-border/50'
-                                            }`}
+                                    </div>
+                                </motion.div>
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+
+                        {/* Input Area */}
+                        <div className="p-4 md:p-6 bg-gradient-to-t from-background via-background to-transparent transition-colors">
+                            <div className="max-w-4xl mx-auto relative group">
+                                <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-secondary/50 rounded-xl opacity-10 group-hover:opacity-20 transition blur-lg"></div>
+                                <div className="relative flex items-center bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-none shadow-xl transition-all">
+                                    <textarea
+                                        ref={inputRef as any}
+                                        value={input}
+                                        autoFocus
+                                        onChange={handleInputResize}
+                                        onKeyDown={handleKeyDown}
+                                        placeholder="Ask anything about your studies..."
+                                        className="flex-1 bg-transparent px-6 py-4 outline-none text-text placeholder-muted resize-none max-h-48 overflow-y-auto"
+                                        disabled={loading}
+                                        rows={1}
+                                    />
+                                    <button
+                                        onClick={handleSend}
+                                        disabled={loading || !input.trim()}
+                                        className="p-3 mr-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        <ReactMarkdown
-                                            className="prose dark:prose-invert prose-sm md:prose-base max-w-none break-words"
-                                            remarkPlugins={[remarkGfm, remarkMath]}
-                                            rehypePlugins={[rehypeKatex]}
-                                            components={{
-                                                a: ({ node, ...props }) => (
-                                                    <a
-                                                        {...props}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="text-blue-500 hover:underline cursor-pointer transition-colors"
-                                                    />
-                                                ),
-                                                code({ node, inline, className, children, ...props }: any) {
-                                                    const match = /language-(\w+)/.exec(className || '')
-                                                    return !inline && match ? (
-                                                        <SyntaxHighlighter
-                                                            {...props}
-                                                            style={oneDark}
-                                                            language={match[1]}
-                                                            PreTag="div"
-                                                            className="rounded-md !bg-zinc-900 border border-white/10 my-2 overflow-x-auto"
-                                                        >
-                                                            {String(children).replace(/\n$/, '')}
-                                                        </SyntaxHighlighter>
-                                                    ) : (
-                                                        <code {...props} className={`${className} bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded`}>
-                                                            {children}
-                                                        </code>
-                                                    )
-                                                },
-                                                table: ({ node, ...props }) => (
-                                                    <div className="overflow-x-auto my-4 border border-border rounded-lg">
-                                                        <table className="min-w-full divide-y divide-border" {...props} />
-                                                    </div>
-                                                ),
-                                                th: ({ node, ...props }) => (
-                                                    <th className="px-4 py-2 bg-input/50 text-left text-xs font-medium text-muted uppercase tracking-wider" {...props} />
-                                                ),
-                                                td: ({ node, ...props }) => (
-                                                    <td className="px-4 py-2 text-sm border-t border-border/50" {...props} />
-                                                )
-                                            }}
-                                        >
-                                            {msg.content}
-                                        </ReactMarkdown>
-                                    </div>
+                                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                                    </button>
                                 </div>
-
-                                {msg.role === 'user' && (
-                                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20 shadow-sm mt-1">
-                                        <User className="w-4 h-4 text-primary" />
-                                    </div>
-                                )}
-                            </motion.div>
-                        ))}
-                    </AnimatePresence>
-
-                    {loading && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4">
-                            <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center border border-secondary/20 shadow-sm">
-                                <Bot className="w-4 h-4 text-secondary" />
-                            </div>
-                            <div className="bg-surface rounded-2xl rounded-bl-none px-6 py-4 shadow-sm flex items-center gap-3">
-                                <span className="text-sm text-foreground/80 font-medium">Lumina is thinking</span>
-                                <div className="flex space-x-1">
-                                    <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                                    <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                                    <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce"></span>
+                                <div className="text-center mt-2 text-xs text-muted">
+                                    Lumina can make mistakes. Verify important information.
                                 </div>
                             </div>
-                        </motion.div>
-                    )}
-                    <div ref={messagesEndRef} />
-                </div>
-
-                {/* Input Area */}
-                <div className="p-4 md:p-6 bg-gradient-to-t from-background via-background to-transparent transition-colors">
-                    <div className="max-w-4xl mx-auto relative group">
-                        <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-secondary/50 rounded-xl opacity-10 group-hover:opacity-20 transition blur-lg"></div>
-                        <div className="relative flex items-center bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-none shadow-xl transition-all">
-                            <textarea
-                                ref={inputRef as any}
-                                value={input}
-                                autoFocus
-                                onChange={handleInputResize}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Ask anything about your studies..."
-                                className="flex-1 bg-transparent px-6 py-4 outline-none text-text placeholder-muted resize-none max-h-48 overflow-y-auto"
-                                disabled={loading}
-                                rows={1}
-                            />
-                            <button
-                                onClick={handleSend}
-                                disabled={loading || !input.trim()}
-                                className="p-3 mr-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                            </button>
                         </div>
-                        <div className="text-center mt-2 text-xs text-muted">
-                            Lumina can make mistakes. Verify important information.
-                        </div>
-                    </div>
-                </div>
+                    </>
+                )}
             </div>
         </div >
     );
