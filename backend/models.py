@@ -10,6 +10,11 @@ class User(Base):
     full_name = Column(String)
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
+    coins = Column(Integer, default=0)
+    last_login = Column(DateTime(timezone=True), nullable=True)
+    favorites = Column(Text, nullable=True) 
+    rewards_cache = Column(Text, nullable=True)
+    coin_history = Column(Text, default="[]")
 
 class EmotionLog(Base):
     __tablename__ = "emotion_logs"
@@ -34,6 +39,7 @@ class Goal(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     subtasks = Column(Text, nullable=True)  # JSON string of subtasks
     quiz_content = Column(Text, nullable=True) # JSON string of generated quiz
+    rewarded = Column(Boolean, default=False)
 
 class UserFact(Base):
     __tablename__ = "user_facts"

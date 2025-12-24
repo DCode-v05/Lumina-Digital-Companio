@@ -10,7 +10,7 @@ from redis_client import (
     create_chat, get_user_chats, delete_chat_session, update_chat_title,
     get_user_profile, update_user_profile
 )
-from groq_service import get_ai_response, generate_chat_title, decompose_goal, generate_goal_reminder, generate_goal_quiz
+from groq_service import get_ai_response, generate_chat_title, decompose_goal, generate_goal_reminder, generate_goal_quiz, generate_personalized_rewards
 from datetime import datetime, timezone
 import json
 import emotion_service
@@ -71,6 +71,24 @@ def on_startup():
 def read_root():
     return {"status": "online", "message": "Lumina Backend Active"}
 
+def log_coin_transaction(user: models.User, description: str, amount: int):
+    """
+    Appends a new transaction to the user's coin history.
+    """
+    try:
+        history = json.loads(user.coin_history) if user.coin_history else []
+    except:
+        history = []
+        
+    transaction = {
+        "date": datetime.now().strftime("%Y-%m-%d"), # Simple date string
+        # or full timestamp if preferred: datetime.now().isoformat()
+        "description": description,
+        "amount": amount
+    }
+    history.append(transaction)
+    user.coin_history = json.dumps(history)
+
 
 # ----------------------------
 # Auth Routes
@@ -115,12 +133,58 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # --- Daily Reward Logic ---
+    now = datetime.now(timezone.utc)
+    reward_message = None
+    
+    if user.last_login:
+        last_date = user.last_login.date()
+        today_date = now.date()
+        if today_date > last_date:
+            user.coins += 20 # Daily Check-in Reward (Updated to 20)
+            log_coin_transaction(user, "Daily Check-in", 20)
+            reward_message = "Daily check-in! +20 Coins"
+    else:
+        # First login ever
+        user.coins += 50 # Welcome Bonus (adjusted to be moderate)
+        log_coin_transaction(user, "First time login", 50)
+        reward_message = "Welcome! +50 Coins"
+        
+    user.last_login = now
+    db.commit()
+    
     access_token = auth.create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/users/me", response_model=schemas.User)
 def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+@app.put("/users/me/favorites")
+def update_user_favorites(
+    favorites: str = Body(..., embed=True),
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not favorites or not favorites.strip():
+        current_user.favorites = ""
+        current_user.rewards_cache = None
+        current_user.coins = 0
+        current_user.coin_history = "[]" # Clear History
+        db.commit()
+        return {"status": "cleared", "favorites": "", "coins": 0}
+
+    was_empty = not current_user.favorites
+    current_user.favorites = favorites
+    current_user.rewards_cache = None # Clear cache
+    
+    if was_empty:
+         current_user.coins += 100 # Updated: 100 points for setting favorites
+         log_coin_transaction(current_user, "Preference Set", 100)
+         
+    db.commit()
+    return {"status": "updated", "favorites": favorites, "coins": current_user.coins}
+
 
 
 # ----------------------------
@@ -176,11 +240,20 @@ def update_goal(goal_id: int, goal: schemas.GoalUpdate, current_user: models.Use
     db.commit()
     db.refresh(db_goal)
 
+    # Reward for Completion (Strict Check)
+    if update_data.get('status') == 'completed' and not db_goal.rewarded:
+        current_user.coins += 50 # Updated: 50 points for goal completion
+        log_coin_transaction(current_user, f"Task '{db_goal.title}' Completed", 50)
+        db_goal.rewarded = True 
+        db.commit()
+        print(f"💰 User rewarded 50 coins for completing goal {goal_id}")
+
     # Check for breakdown completion and generate quiz if needed
     if db_goal.subtasks and not db_goal.quiz_content:
         try:
              subtasks = json.loads(db_goal.subtasks)
              if subtasks and all(t.get("completed") for t in subtasks):
+                 # Double check if we should generate quiz
                  print(f"🎉 Goal {goal_id} completed! Generating quiz...")
                  quiz_data = generate_goal_quiz(db_goal.title, subtasks)
                  if quiz_data:
@@ -273,9 +346,107 @@ def decompose_goal_endpoint(
     db_goal.subtasks = json.dumps(subtasks_list)
     db_goal.status = "in_progress" # Reset status if it was completed
     db_goal.quiz_content = None   # Reset quiz since tasks changed
+    # We do NOT reset 'rewarded' status typically to prevent farming, or reset it if meaningful change? 
+    # For now, let's keep rewarded=True if they already got it once for this goal ID.
     db.commit()
     db.refresh(db_goal)
     return db_goal
+
+# --- Rewards ---
+
+@app.get("/users/me/rewards")
+def get_user_rewards(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    """
+    Generates a large list of 50+ reward items.
+    Uses AI to generate based on favorites if available and not cached.
+    """
+    
+    if current_user.rewards_cache:
+        try:
+             cached_items = json.loads(current_user.rewards_cache)
+             if isinstance(cached_items, list) and len(cached_items) > 0:
+                  return {
+                      "coins": current_user.coins, 
+                      "items": cached_items,
+                      "history": json.loads(current_user.coin_history) if current_user.coin_history else []
+                  }
+        except:
+             pass 
+
+    favs = current_user.favorites
+    items = []
+    
+    def get_id(idx): return f"rew_{idx}"
+    idx_counter = 0
+
+    if favs and len(favs.strip()) > 0:
+        print(f"Generating personalized rewards for: {favs}")
+        ai_rewards = generate_personalized_rewards(favs)
+        
+        if ai_rewards:
+            for r in ai_rewards:
+                items.append({
+                    "id": get_id(idx_counter),
+                    "name": r.get("name", "Reward"),
+                    "cost": r.get("cost", 50),
+                    "icon": r.get("icon", "gift"), 
+                    "category": r.get("category", "General")
+                })
+                idx_counter += 1
+    
+    current_user.rewards_cache = json.dumps(items)
+    db.commit()
+            
+    current_history = json.loads(current_user.coin_history) if current_user.coin_history else []
+    
+    if not current_history and current_user.coins > 0:
+        backfilled_txns = []
+        remaining = current_user.coins
+        
+        if remaining >= 50:
+            backfilled_txns.append({
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "description": "Welcome Bonus (Legacy)",
+                "amount": 50
+            })
+            remaining -= 50
+            
+        if remaining > 0:
+            if remaining >= 100:
+                backfilled_txns.append({
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "description": "Preferences Set (Legacy)",
+                    "amount": 100
+                })
+                remaining -= 100
+            
+            if remaining > 0:
+                backfilled_txns.append({
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "description": "Previous Earnings",
+                    "amount": remaining
+                })
+        
+        # Save inferred history
+        current_user.coin_history = json.dumps(backfilled_txns)
+        db.commit()
+        current_history = backfilled_txns
+
+    return {"coins": current_user.coins, "items": items, "history": current_history}
+
+@app.post("/users/me/redeem")
+def redeem_reward(
+    request: schemas.RedeemRequest, 
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.coins < request.cost:
+        raise HTTPException(status_code=400, detail="Insufficient coins")
+    
+    current_user.coins -= request.cost
+    log_coin_transaction(current_user, "Reward Redeemed", -request.cost)
+    db.commit()
+    return {"status": "success", "new_balance": current_user.coins}
 
 @app.delete("/chats/{chat_id}")
 def delete_chat_endpoint(

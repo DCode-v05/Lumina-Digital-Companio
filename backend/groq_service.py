@@ -597,3 +597,52 @@ def generate_goal_quiz(goal_title, subtasks):
     except Exception as e:
         print(f"⚠️ Quiz generation failed: {e}")
         return None
+
+def generate_personalized_rewards(interests_text):
+    """
+    Generates 50-75 unique reward items based on user interests using AI.
+    Returns a list of dicts: { "name": str, "cost": int, "icon": str, "category": str }
+    """
+    try:
+        prompt = f"""
+        Generate a list of 50 purchasable 'virtual items' or 'collectibles' for a user who loves: "{interests_text}".
+        These items should be things they would want to 'own' or 'collect' in the app to show their fandom.
+        
+        Rules:
+        1. Items should be specific objects, people, or assets related to the interest.
+           - If Cricket: "Signed Bat", "Leather Ball", "Season Ticket", "Virat Kohli Card", "Stadium Model".
+           - If Coding: "Mech Keyboard", "Dual Monitors", "Server Rack", "Linus Torvalds Card".
+        2. Create 4 Distinct Rarity Tiers with specific costs:
+           - "Common": 20-50 coins (Everyday items)
+           - "Rare": 50-150 coins (Special gear/items)
+           - "Epic": 150-500 coins (Famous players, pro venues, high-end tech)
+           - "Legendary": 500-1000 coins (History-making moments, GOAT players, dream setups)
+        3. "icon" MUST be one of: [trophy, star, gift, shopping, heart, game, coffee, music, sun]. 
+           - Use 'trophy' or 'star' for high-value items/people.
+           - Use 'shopping' or 'gift' for gear/objects.
+        4. "category" should be the Rarity Tier ("Common", "Rare", "Epic", "Legendary").
+        
+        Output stricly Valid JSON format:
+        {{
+            "rewards": [
+                {{ "name": "Standard Cricket Ball", "cost": 30, "icon": "shopping", "category": "Common" }},
+                {{ "name": "Signed Jersey", "cost": 200, "icon": "trophy", "category": "Epic" }},
+                ...
+            ]
+        }}
+        """
+        
+        completion = client.chat.completions.create(
+            model=MODEL_CONFIG["reasoning"],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.8,
+            response_format={"type": "json_object"}
+        )
+        
+        text = completion.choices[0].message.content.strip()
+        data = json.loads(text)
+        return data.get("rewards", [])
+
+    except Exception as e:
+        print(f"⚠️ Reward generation failed: {e}")
+        return []

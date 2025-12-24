@@ -13,6 +13,10 @@ class UserCreate(UserBase):
 class User(UserBase):
     id: int
     is_active: bool
+    coins: int = 0
+    favorites: Optional[str] = None
+    last_login: Optional[datetime] = None
+    coin_history: Optional[str] = "[]"
 
     class Config:
         from_attributes = True
@@ -78,3 +82,6 @@ class Goal(GoalBase):
 
     class Config:
         from_attributes = True
+
+class RedeemRequest(BaseModel):
+    cost: int
