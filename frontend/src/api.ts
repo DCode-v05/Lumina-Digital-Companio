@@ -146,3 +146,8 @@ export const decomposeGoal = async (id: number, breakdownType: 'daily' | 'weekly
     });
     return response.data;
 }
+
+export const getGoalQuiz = async (id: number) => {
+    const response = await axios.get(`${API_URL}/goals/${id}/quiz`);
+    return response.data; // { available: boolean, quiz: { is_learning: boolean, questions: [...] } }
+}

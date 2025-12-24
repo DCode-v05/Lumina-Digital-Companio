@@ -10,7 +10,8 @@ from redis_client import (
     create_chat, get_user_chats, delete_chat_session, update_chat_title,
     get_user_profile, update_user_profile
 )
-from groq_service import get_ai_response, generate_chat_title, decompose_goal
+from groq_service import get_ai_response, generate_chat_title, decompose_goal, generate_goal_reminder, generate_goal_quiz
+from datetime import datetime, timezone
 import json
 import emotion_service
 
@@ -174,7 +175,75 @@ def update_goal(goal_id: int, goal: schemas.GoalUpdate, current_user: models.Use
     
     db.commit()
     db.refresh(db_goal)
+
+    # Check for breakdown completion and generate quiz if needed
+    if db_goal.subtasks and not db_goal.quiz_content:
+        try:
+             subtasks = json.loads(db_goal.subtasks)
+             if subtasks and all(t.get("completed") for t in subtasks):
+                 print(f"🎉 Goal {goal_id} completed! Generating quiz...")
+                 quiz_data = generate_goal_quiz(db_goal.title, subtasks)
+                 if quiz_data:
+                     db_goal.quiz_content = json.dumps(quiz_data)
+                     db.commit()
+                     db.refresh(db_goal)
+        except Exception as e:
+            print(f"Error checking goal completion for quiz: {e}")
+
     return db_goal
+
+@app.get("/goals/reminders")
+def get_goal_reminders(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    """
+    Checks active goals and returns daily reminders based on progress.
+    """
+    active_goals = db.query(models.Goal).filter(
+        models.Goal.user_id == current_user.id,
+        models.Goal.status != "completed"
+    ).all()
+    
+    reminders = []
+    today = datetime.now(timezone.utc)
+    
+    for goal in active_goals:
+        # Calculate days elapsed since creation
+        if not goal.created_at:
+             continue
+             
+        # simplistic day diff
+        created_at = goal.created_at.replace(tzinfo=timezone.utc) if goal.created_at.tzinfo is None else goal.created_at
+        days_elapsed = (today - created_at).days + 1
+        
+        if days_elapsed > goal.duration:
+             days_elapsed = goal.duration # Cap at max duration
+        
+        if days_elapsed <= 0: days_elapsed = 1
+        
+        # Only meaningful to send reminder if we have a breakdown or at least active
+        subtasks = json.loads(goal.subtasks) if goal.subtasks else []
+        
+        # Generate Reminder
+        message = generate_goal_reminder(goal.title, subtasks, days_elapsed, goal.duration)
+        
+        reminders.append({
+            "goal_id": goal.id,
+            "goal_title": goal.title,
+            "day": days_elapsed,
+            "message": message
+        })
+        
+    return reminders
+
+@app.get("/goals/{goal_id}/quiz")
+def get_goal_quiz(goal_id: int, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    db_goal = db.query(models.Goal).filter(models.Goal.id == goal_id, models.Goal.user_id == current_user.id).first()
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+        
+    if not db_goal.quiz_content:
+         return {"available": False}
+         
+    return {"available": True, "quiz": json.loads(db_goal.quiz_content)}
 
 @app.delete("/goals/{goal_id}")
 def delete_goal(goal_id: int, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
@@ -202,6 +271,8 @@ def decompose_goal_endpoint(
     
     # Update DB
     db_goal.subtasks = json.dumps(subtasks_list)
+    db_goal.status = "in_progress" # Reset status if it was completed
+    db_goal.quiz_content = None   # Reset quiz since tasks changed
     db.commit()
     db.refresh(db_goal)
     return db_goal

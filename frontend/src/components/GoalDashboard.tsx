@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Target, CheckCircle2, Circle, CalendarCheck, Trash2, Clock, ChevronDown, ChevronUp, Loader2, Plus, Edit2, X, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Target, CheckCircle2, Circle, CalendarCheck, Trash2, Clock, ChevronDown, ChevronUp, Loader2, Plus, Edit2, X, AlertTriangle, RefreshCw, BrainCircuit } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Goal, getGoals, createGoal, updateGoal, deleteGoal, decomposeGoal } from '../api';
+import { Goal, getGoals, createGoal, updateGoal, deleteGoal, decomposeGoal, getGoalQuiz } from '../api';
 
 export function GoalDashboard() {
     const [goals, setGoals] = useState<Goal[]>([]);
@@ -13,6 +13,14 @@ export function GoalDashboard() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingGoal, setEditingGoal] = useState<Partial<Goal> | null>(null);
     const [deleteId, setDeleteId] = useState<number | null>(null);
+
+    // Quiz States
+    const [isQuizOpen, setIsQuizOpen] = useState(false);
+    const [quizData, setQuizData] = useState<any>(null);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [score, setScore] = useState(0);
+    const [showResults, setShowResults] = useState(false);
+    const [loadingQuiz, setLoadingQuiz] = useState(false);
 
     useEffect(() => {
         loadGoals();
@@ -99,16 +107,24 @@ export function GoalDashboard() {
         if (subtasks[index] && typeof subtasks[index] === 'object') {
             subtasks[index].completed = !subtasks[index].completed;
         } else {
-            // Backward compatibility if string
             return;
+        }
+
+        const allCompleted = subtasks.length > 0 && subtasks.every((t: any) => t.completed);
+        let newStatus = goal.status;
+
+        if (allCompleted && goal.status !== 'completed') {
+            newStatus = 'completed';
+        } else if (!allCompleted && goal.status === 'completed') {
+            newStatus = 'in_progress';
         }
 
         // Optimistic Update
         const updatedSubtasksJson = JSON.stringify(subtasks);
-        setGoals(prev => prev.map(g => g.id === goal.id ? { ...g, subtasks: updatedSubtasksJson } : g));
+        setGoals(prev => prev.map(g => g.id === goal.id ? { ...g, subtasks: updatedSubtasksJson, status: newStatus } : g));
 
         try {
-            await updateGoal(goal.id, { subtasks: updatedSubtasksJson });
+            await updateGoal(goal.id, { subtasks: updatedSubtasksJson, status: newStatus });
         } catch (e) {
             console.error("Failed to update subtask", e);
             loadGoals(); // Revert
@@ -150,6 +166,43 @@ export function GoalDashboard() {
             return Array.isArray(parsed) ? parsed : [];
         } catch {
             return [];
+        }
+    };
+
+    const handleTakeQuiz = async (goalId: number) => {
+        setLoadingQuiz(true);
+        try {
+            const data = await getGoalQuiz(goalId);
+            if (data.available && data.quiz) {
+                setQuizData(data.quiz);
+                setCurrentQuestionIndex(0);
+                setScore(0);
+                setShowResults(false);
+                setIsQuizOpen(true);
+            } else {
+                alert("No quiz available for this goal yet. Complete all tasks first!");
+            }
+        } catch (e) {
+            console.error("Failed to fetch quiz", e);
+        } finally {
+            setLoadingQuiz(false);
+        }
+    };
+
+    const handleAnswer = (selectedOption: string) => {
+        const currentQuestion = quizData.questions[currentQuestionIndex];
+        // Simple check: assuming backend provides "correct_answer" that matches option text or index
+        // The backend prompt asked for "correct_answer" text.
+
+        // Let's assume exact text match for now
+        if (selectedOption === currentQuestion.correct_answer) {
+            setScore(prev => prev + 1);
+        }
+
+        if (currentQuestionIndex + 1 < quizData.questions.length) {
+            setCurrentQuestionIndex(prev => prev + 1);
+        } else {
+            setShowResults(true);
         }
     };
 
@@ -262,8 +315,38 @@ export function GoalDashboard() {
                                                     {/* Duration Badge */}
                                                     <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface border border-white/5 text-muted">
                                                         <Clock className="w-3.5 h-3.5" />
-                                                        {goal.duration} {goal.duration_unit}
+                                                        {goal.duration} {goal.duration === 1 && goal.duration_unit.endsWith('s') ? goal.duration_unit.slice(0, -1) : goal.duration_unit}
                                                     </span>
+
+                                                    {/* Due Date Badge */}
+                                                    {goal.created_at && (() => {
+                                                        const dueDate = new Date(goal.created_at);
+                                                        if (goal.duration === undefined || goal.duration === null) return null;
+
+                                                        // Calculate Due Date
+                                                        if (goal.duration_unit === 'weeks') dueDate.setDate(dueDate.getDate() + goal.duration * 7);
+                                                        else if (goal.duration_unit === 'months') dueDate.setMonth(dueDate.getMonth() + goal.duration);
+                                                        else dueDate.setDate(dueDate.getDate() + goal.duration);
+
+                                                        // Check Overdue (compare with today)
+                                                        const today = new Date();
+                                                        // Reset time part for accurate day comparison
+                                                        today.setHours(0, 0, 0, 0);
+                                                        const checkDate = new Date(dueDate);
+                                                        checkDate.setHours(0, 0, 0, 0);
+
+                                                        const isOverdue = checkDate < today;
+                                                        const isCompleted = goal.status === 'completed';
+                                                        const isOverdueAndActive = isOverdue && !isCompleted;
+
+                                                        return (
+                                                            <span className={`flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface border border-white/5 transition-colors ${isOverdueAndActive ? 'text-red-400 border-red-500/20 bg-red-500/5' : 'text-muted'}`}>
+                                                                <CalendarCheck className={`w-3.5 h-3.5 ${isOverdueAndActive ? 'text-red-500' : 'text-blue-400'}`} />
+                                                                {isOverdueAndActive ? "Overdue: " : "Due: "}
+                                                                {dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'numeric', year: 'numeric' })}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         </div>
@@ -333,7 +416,6 @@ export function GoalDashboard() {
                                                                     );
                                                                 })}
 
-                                                                {/* "Recreate" option */}
                                                                 <button
                                                                     onClick={() => handleDecomposeClick(goal)}
                                                                     className="text-xs text-secondary hover:underline ml-2 mt-4 flex items-center gap-1 opacity-80 hover:opacity-100"
@@ -342,6 +424,20 @@ export function GoalDashboard() {
                                                                     Regenerate Goal Plan
                                                                 </button>
                                                             </div>
+
+                                                            {/* Quiz Button if Completed */}
+                                                            {getSubtasks(goal.subtasks).every((t: any) => typeof t === 'object' && t.completed) && (
+                                                                <div className="mt-4 px-2">
+                                                                    <button
+                                                                        onClick={() => handleTakeQuiz(goal.id)}
+                                                                        disabled={loadingQuiz}
+                                                                        className="w-full py-3 bg-gradient-to-r from-purple-500/10 to-blue-500/10 hover:from-purple-500/20 hover:to-blue-500/20 border border-purple-500/20 rounded-xl flex items-center justify-center gap-2 group/quiz transition-all"
+                                                                    >
+                                                                        {loadingQuiz ? <Loader2 className="w-5 h-5 animate-spin text-purple-400" /> : <BrainCircuit className="w-5 h-5 text-purple-400 group-hover/quiz:rotate-12 transition-transform" />}
+                                                                        <span className="font-bold text-purple-200 group-hover/quiz:text-white">Take Knowledge Quiz</span>
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                         </motion.div>
                                                     )}
                                                 </AnimatePresence>
@@ -536,6 +632,75 @@ export function GoalDashboard() {
                                     </button>
                                 </div>
                             </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Quiz Modal */}
+            <AnimatePresence>
+                {isQuizOpen && quizData && (
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            className="bg-zinc-900 border border-purple-500/20 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden"
+                        >
+                            {!showResults && quizData.questions && quizData.questions.length > 0 ? (
+                                <div className="p-8">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <div className="flex items-center gap-2 text-purple-400">
+                                            <BrainCircuit className="w-6 h-6" />
+                                            <span className="font-bold tracking-wider uppercase text-sm">Knowledge Check</span>
+                                        </div>
+                                        <span className="text-muted font-mono text-sm">Question {currentQuestionIndex + 1}/{quizData.questions.length}</span>
+                                    </div>
+
+                                    <h3 className="text-xl md:text-2xl font-bold text-white mb-8">
+                                        {quizData.questions[currentQuestionIndex].question}
+                                    </h3>
+
+                                    <div className="grid gap-3">
+                                        {quizData.questions[currentQuestionIndex].options.map((option: string, idx: number) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => handleAnswer(option)}
+                                                className="w-full text-left p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-purple-500/50 transition-all font-medium text-gray-200 hover:text-white hover:pl-5 duration-200"
+                                            >
+                                                <span className="inline-block w-6 text-muted">{String.fromCharCode(65 + idx)}.</span> {option}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : showResults ? (
+                                <div className="p-12 text-center flex flex-col items-center">
+                                    <div className="w-20 h-20 bg-purple-500/20 rounded-full flex items-center justify-center mb-6">
+                                        <Target className="w-10 h-10 text-purple-500" />
+                                    </div>
+                                    <h3 className="text-3xl font-bold text-white mb-2">Quiz Completed!</h3>
+                                    <p className="text-muted mb-8">You've tested your knowledge on this goal.</p>
+
+                                    <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-purple-400 to-blue-400 mb-2">
+                                        {score}/{quizData.questions.length}
+                                    </div>
+                                    <p className="text-sm font-bold uppercase tracking-widest text-muted mb-8">Final Score</p>
+
+                                    <button
+                                        onClick={() => setIsQuizOpen(false)}
+                                        className="bg-white text-black px-8 py-3 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                                    >
+                                        Close Quiz
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="p-8 text-center text-red-400">
+                                    <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                                    <h3 className="text-lg font-bold">Quiz Data Error</h3>
+                                    <p className="text-sm mt-2">Could not load questions.</p>
+                                    <button onClick={() => setIsQuizOpen(false)} className="mt-4 text-white hover:underline">Close</button>
+                                </div>
+                            )}
                         </motion.div>
                     </div>
                 )}

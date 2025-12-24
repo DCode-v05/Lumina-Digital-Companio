@@ -429,23 +429,59 @@ def decompose_goal(title, duration, duration_unit, breakdown_type="daily"):
     try:
         # Determine the granularity instruction
         granularity = "day" if breakdown_type == "daily" else "week"
-        
-        prompt = f"""
-        You are an expert planner. The user has a goal: "{title}" to be completed in {duration} {duration_unit}.
-        Create a detailed, step-by-step roadmap broken down by {granularity}.
-        
-        Rules:
-        1. If breakdown is 'daily', labels tasks "Day 1:", "Day 2:", etc.
-        2. If breakdown is 'weekly', label tasks "Week 1:", "Week 2:", etc.
-        3. Ensure the timeline fits exactly within {duration} {duration_unit}.
-        
-        Return strictly a JSON object with a key "subtasks" containing a list of objects.
-        Each object must have:
-        - "text": The task description (including the Day/Week label)
-        - "completed": false (always boolean false)
-        
-        Example: {{ "subtasks": [ {{ "text": "Day 1: Setup env", "completed": false }} ] }}
-        """
+
+        # Normalize duration to match granularity
+        normalized_duration = duration
+        if granularity == "day":
+            if "week" in duration_unit.lower():
+                normalized_duration = duration * 7
+            elif "month" in duration_unit.lower():
+                normalized_duration = duration * 30
+        elif granularity == "week":
+             if "month" in duration_unit.lower():
+                normalized_duration = duration * 4
+             # If unit is days but we want weeks, usually uncommon for long goals, but handle simple case
+             elif "day" in duration_unit.lower():
+                  normalized_duration = max(1, duration // 7)
+
+        if normalized_duration == 1 and granularity == "day":
+             # Special handling for single day goals -> Hourly/Session breakdown
+             prompt = f"""
+             You are an expert planner. The user has a 1-day goal: "{title}".
+             Create a detailed schedule broken down by DURATION.
+             
+             Rules:
+             1. Break the day into 4-6 distinct working sessions.
+             2. DO NOT use "Day 1" or specific clock times (like 9:00 AM) as the start of the label.
+             3. Labels format example: "1 Hr: Task Name" or "30 Mins: Task Name" or "2 Hrs: Task Name".
+             4. Ensure the total time adds up to a reasonable work day (e.g. 4-8 hours).
+             
+             Return strictly a JSON object with a key "subtasks" containing a list of objects.
+             Each object must have:
+             - "text": The task description (starting with the duration label)
+             - "completed": false
+             
+             Example: {{ "subtasks": [ {{ "text": "1 Hr: Research core concepts", "completed": false }} ] }}
+             """
+        else:
+             # Standard multi-day/week breakdown
+             prompt = f"""
+             You are an expert planner. The user has a goal: "{title}" to be completed in {duration} {duration_unit}.
+             Create a detailed, step-by-step roadmap broken down by {granularity}.
+             
+             Rules:
+             1. You MUST generate a plan that covers EXACTLY {normalized_duration} {granularity}s.
+             2. There must be distinct task(s) for EVERY single {granularity} from 1 to {normalized_duration}.
+             3. Do NOT skip any {granularity}s.
+             4. Label tasks clearly as "{granularity.capitalize()} 1:", "{granularity.capitalize()} 2:", etc.
+             
+             Return strictly a JSON object with a key "subtasks" containing a list of objects.
+             Each object must have:
+             - "text": The task description (including the Day/Week label)
+             - "completed": false
+             
+             Example: {{ "subtasks": [ {{ "text": "Day 1: Setup env", "completed": false }}, {{ "text": "Day 2: ...", "completed": false }} ] }}
+             """
         
         completion = client.chat.completions.create(
             model=MODEL_CONFIG["reasoning"],
@@ -461,3 +497,103 @@ def decompose_goal(title, duration, duration_unit, breakdown_type="daily"):
     except Exception as e:
         print(f"⚠️ Goal decomposition failed: {e}")
         return [{"text": "Could not decompose goal automatically.", "completed": False}]
+
+def generate_goal_reminder(goal_title, subtasks, days_elapsed, duration):
+    """
+    Generates a context-aware reminder for the user based on their goal progress.
+    """
+    try:
+        # Calculate progress
+        total_tasks = len(subtasks)
+        completed_tasks = sum(1 for t in subtasks if t.get("completed", False))
+        
+        # Find the current expected task (Day X)
+        # Assuming subtasks are ordered Day 1, Day 2...
+        # If days_elapsed is 4, we expect task index 3 (Day 4) to be active or done.
+        
+        target_task_index = min(days_elapsed - 1, total_tasks - 1)
+        if target_task_index < 0: target_task_index = 0
+        
+        current_task = subtasks[target_task_index] if subtasks else None
+        
+        completion_status = f"User has completed {completed_tasks}/{total_tasks} tasks."
+        if current_task:
+            completion_status += f" It is Day {days_elapsed}. The task for today is: '{current_task.get('text', 'Unknown')}'."
+            if current_task.get("completed"):
+                completion_status += " This task is already marked as completed."
+            else:
+                completion_status += " This task is NOT yet completed."
+        
+        prompt = f"""
+        You are an accountability partner. The user has a goal: "{goal_title}".
+        Goal Duration: {duration} days.
+        Current Status: {completion_status}
+        
+        Task: Write a short, encouraging, and specific reminder message (max 2 sentences).
+        - If the user is on track (completed previous days), cheer them on for today's task.
+        - If the user is behind (e.g., it's Day 5 but they haven't finished Day 3), gently remind them to catch up on the specific pending task.
+        - If they are ahead, congratulate them.
+        
+        Return ONLY the raw string message. No JSON.
+        """
+        
+        completion = client.chat.completions.create(
+            model=MODEL_CONFIG["primary"],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        
+        return completion.choices[0].message.content.strip()
+
+    except Exception as e:
+        print(f"⚠️ Reminder generation failed: {e}")
+        return f"Don't forget to work on your goal: {goal_title}!"
+
+def generate_goal_quiz(goal_title, subtasks):
+    """
+    Generates a 5-question MCQ quiz if the goal is learning-related.
+    Returns None if not learning related.
+    """
+    try:
+        # Flatten subtasks text for context
+        content_context = "\n".join([t.get("text", "") for t in subtasks])
+        
+        prompt = f"""
+        Analyze this goal: "{goal_title}" and its subtasks:
+        {content_context}
+        
+        1. Determine if this is a "Learning" goal (e.g. learning a language, skill, coding, history) or just a chore/task (e.g. clean garage, buy groceries).
+        2. If it is NOT a learning goal, return strictly: {{ "is_learning": false }}
+        3. If it IS a learning goal, generate a quiz with 5 Multiple Choice Questions (MCQs) to test the user's knowledge based on these subtasks.
+        
+        Output Format (JSON Only):
+        {{
+            "is_learning": true,
+            "questions": [
+                {{
+                    "question": "...",
+                    "options": ["A", "B", "C", "D"],
+                    "correct_answer": "Option Text" 
+                }}
+            ]
+        }}
+        """
+        
+        completion = client.chat.completions.create(
+            model=MODEL_CONFIG["academic"], # Use academic model for better quality questions
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+            response_format={"type": "json_object"}
+        )
+        
+        text = completion.choices[0].message.content.strip()
+        data = json.loads(text)
+        
+        if not data.get("is_learning"):
+            return None
+            
+        return data
+
+    except Exception as e:
+        print(f"⚠️ Quiz generation failed: {e}")
+        return None

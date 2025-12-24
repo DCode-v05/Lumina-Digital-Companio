@@ -33,6 +33,7 @@ class Goal(Base):
     status = Column(String, default="not_started")  # 'not_started', 'in_progress', 'completed'
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     subtasks = Column(Text, nullable=True)  # JSON string of subtasks
+    quiz_content = Column(Text, nullable=True) # JSON string of generated quiz
 
 class UserFact(Base):
     __tablename__ = "user_facts"
