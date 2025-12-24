@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Brain, LogOut, PanelLeftClose, PanelLeftOpen, Target } from 'lucide-react';
+import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Brain, LogOut, PanelLeftClose, PanelLeftOpen, Target, Gift, Heart, Coins } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
 import remarkGfm from 'remark-gfm';
@@ -9,8 +9,9 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { sendMessage, getHistory, getMe, getChats, createChat, deleteChat, ChatSession, getProfile, updateProfile } from './api';
+import { sendMessage, getHistory, getMe, getChats, createChat, deleteChat, ChatSession, getProfile, updateProfile, updateFavorites } from './api';
 import { GoalDashboard } from './components/GoalDashboard';
+import { RewardDashboard } from './components/RewardDashboard';
 import './index.css';
 
 import Login from './pages/Login';
@@ -54,10 +55,11 @@ function Toast({ message, onClose }: { message: string, onClose: () => void }) {
 }
 
 // Profile Memory Modal
-function ProfileModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
+function ProfileModal({ isOpen, onClose, userData, onDeleteFavorites }: { isOpen: boolean, onClose: () => void, userData: any, onDeleteFavorites?: () => void }) {
     const [facts, setFacts] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [factToDelete, setFactToDelete] = useState<number | null>(null);
+    const [confirmDeleteFavorites, setConfirmDeleteFavorites] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -127,34 +129,64 @@ function ProfileModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => voi
                                 <Loader2 className="w-8 h-8 animate-spin mb-2" />
                                 <p className="text-sm">Accessing memory banks...</p>
                             </div>
-                        ) : facts.length > 0 ? (
-                            <ul className="space-y-3">
-                                {facts.map((fact, index) => (
-                                    <motion.li
-                                        key={index}
-                                        initial={{ opacity: 0, x: -10 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ delay: index * 0.05 }}
-                                        className="flex items-start justify-between gap-3 text-sm text-text bg-input/50 p-3 rounded-lg border border-border/50 group"
-                                    >
-                                        <div className="flex gap-3">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 flex-shrink-0" />
-                                            <span>{fact}</span>
-                                        </div>
-                                        <button
-                                            onClick={() => setFactToDelete(index)}
-                                            className="opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-red-400 transition-all"
-                                            title="Forget this memory"
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                    </motion.li>
-                                ))}
-                            </ul>
                         ) : (
-                            <div className="text-center py-8 text-muted">
-                                <p>Lumina hasn't learned any specific facts about you yet.</p>
-                                <p className="text-xs mt-2">Chat more to build your personalized profile!</p>
+                            <div className="space-y-6">
+                                {/* Pinned Favorites */}
+                                {userData?.favorites && (
+                                    <div className="group relative">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h4 className="text-xs font-bold text-secondary uppercase tracking-wider flex items-center gap-2">
+                                                <Heart className="w-3 h-3 fill-current" /> Core Interests
+                                            </h4>
+                                            {onDeleteFavorites && (
+                                                <button
+                                                    onClick={() => setConfirmDeleteFavorites(true)}
+                                                    className="text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                                    title="Clear Favorites"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-secondary/10 border border-secondary/20 rounded-xl text-secondary font-medium shadow-sm">
+                                            {userData.favorites}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <h4 className="text-xs font-bold text-muted uppercase tracking-wider mb-2 flex items-center gap-2">
+                                    <Brain className="w-3 h-3" /> Learned Facts
+                                </h4>
+                                {facts.length > 0 ? (
+                                    <ul className="space-y-3">
+
+                                        {facts.map((fact, index) => (
+                                            <motion.li
+                                                key={index}
+                                                initial={{ opacity: 0, x: -10 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                transition={{ delay: index * 0.05 }}
+                                                className="flex items-start justify-between gap-3 text-sm text-text bg-input/50 p-3 rounded-lg border border-border/50 group"
+                                            >
+                                                <div className="flex gap-3">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 flex-shrink-0" />
+                                                    <span>{fact}</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => setFactToDelete(index)}
+                                                    className="opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-red-400 transition-all"
+                                                    title="Forget this memory"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </motion.li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <div className="text-center py-6 text-muted bg-input/30 rounded-lg border border-dashed border-border/50">
+                                        <p className="text-sm">No specific facts learned yet.</p>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -176,6 +208,17 @@ function ProfileModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => voi
                 onConfirm={confirmDeleteFact}
                 title="Forget Memory?"
                 message="Are you sure you want Lumina to forget this fact about you? This user context will be permanently removed."
+            />
+
+            <ConfirmationModal
+                isOpen={confirmDeleteFavorites}
+                onClose={() => setConfirmDeleteFavorites(false)}
+                onConfirm={() => {
+                    if (onDeleteFavorites) onDeleteFavorites();
+                    setConfirmDeleteFavorites(false);
+                }}
+                title="Clear Core Interests?"
+                message="Are you sure you want to clear your saved favorites? This will reset your coins to 0 and remove all personalized rewards."
             />
         </AnimatePresence >
     );
@@ -228,6 +271,60 @@ function ConfirmationModal({ isOpen, onClose, onConfirm, title, message }: { isO
     );
 }
 
+// Favorites Prompt Modal
+function FavoritesModal({ isOpen, onClose, onSave }: { isOpen: boolean, onClose: () => void, onSave: (favs: string) => void }) {
+    const [favs, setFavs] = useState("");
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+            <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-surface border border-primary/20 w-full max-w-md rounded-2xl p-8 shadow-2xl relative overflow-hidden"
+            >
+                <div className="absolute top-0 right-0 -mr-10 -mt-10 w-32 h-32 bg-primary/20 blur-3xl rounded-full pointer-events-none" />
+
+                <div className="flex flex-col items-center text-center mb-6">
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4 border border-primary/20">
+                        <Heart className="w-8 h-8 text-primary fill-primary/20 animate-pulse" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-text">Let's Get to Know You!</h2>
+                    <p className="text-muted mt-2">To personalize your rewards, tell us what you love doing for fun.</p>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-muted uppercase tracking-wider">Your Favorites</label>
+                        <input
+                            type="text"
+                            value={favs}
+                            onChange={(e) => setFavs(e.target.value)}
+                            placeholder="e.g., Playing Guitar, Video Games, Hiking..."
+                            className="w-full mt-2 bg-input border border-border rounded-xl px-4 py-3 text-text focus:outline-none focus:border-primary transition-all"
+                            autoFocus
+                        />
+                        <p className="text-xs text-muted/70 mt-2">Lumina will use this to create custom rewards for you!</p>
+                    </div>
+
+                    <button
+                        onClick={() => {
+                            if (favs.trim()) onSave(favs);
+                        }}
+                        disabled={!favs.trim()}
+                        className="w-full py-3 bg-primary hover:bg-primary/90 text-white font-bold rounded-xl shadow-lg shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+                    >
+                        Save & Continue
+                    </button>
+                    <button onClick={onClose} className="w-full text-xs text-muted hover:text-text py-2">Skip for now</button>
+                </div>
+            </motion.div>
+        </div>
+    );
+}
+
+
 // --- Modes ---
 
 
@@ -246,14 +343,15 @@ function ChatInterface() {
     const [currentChatId, setCurrentChatId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(true);
-    const [userData, setUserData] = useState<{ full_name: string } | null>(null);
+    const [userData, setUserData] = useState<{ full_name: string, favorites?: string, coins: number } | null>(null);
     const [showSuccessToast, setShowSuccessToast] = useState(false);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [showProfileModal, setShowProfileModal] = useState(false);
+    const [showFavoritesModal, setShowFavoritesModal] = useState(false);
 
     // New View State
-    const [activeView, setActiveView] = useState<'chat' | 'goals'>('chat');
+    const [activeView, setActiveView] = useState<'chat' | 'goals' | 'rewards'>('chat');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -290,6 +388,11 @@ function ChatInterface() {
                 // Default to New Chat instead of opening last chat
                 handleNewChat();
 
+                // Check for Favorites
+                if (!user.favorites) {
+                    setTimeout(() => setShowFavoritesModal(true), 1000);
+                }
+
             } catch (err) {
                 // Only redirect if unauthorized
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -301,6 +404,37 @@ function ChatInterface() {
         };
         init();
     }, [navigate]);
+
+    const handleSaveFavorites = async (favs: string) => {
+        try {
+            const res = await updateFavorites(favs);
+            if (userData) {
+                // Use the exact coin balance returned by the backend (which is now 100 for first set)
+                setUserData({ ...userData, favorites: favs, coins: res.coins });
+            }
+            setShowFavoritesModal(false);
+            setToastMessage(`Preferences saved! +${res.coins > 20 ? 100 : 20} Coins`);
+        } catch (e) {
+            console.error("Failed to save favorites", e);
+        }
+    };
+
+    const handleDeleteFavorites = async () => {
+        try {
+            const res = await updateFavorites("");
+            if (userData) {
+                setUserData({ ...userData, favorites: "", coins: res.coins });
+            }
+            setToastMessage("Core interests cleared. Coins reset.");
+
+            // If currently in Reward Store, redirect out since personalized rewards are gone
+            if (activeView === 'rewards') {
+                handleNewChat();
+            }
+        } catch (e) {
+            console.error("Failed to delete favorites", e);
+        }
+    };
 
     const selectChat = async (id: string | null) => {
         if (!id) return;
@@ -451,7 +585,23 @@ function ChatInterface() {
             <ProfileModal
                 isOpen={showProfileModal}
                 onClose={() => setShowProfileModal(false)}
+                userData={userData}
+                onDeleteFavorites={handleDeleteFavorites}
             />
+
+            <FavoritesModal
+                isOpen={showFavoritesModal}
+                onClose={() => {
+                    setShowFavoritesModal(false);
+                    // If user skips favorites while trying to access Reward Store, redirect to New Chat
+                    if (activeView === 'rewards' && !userData?.favorites) {
+                        handleNewChat();
+                    }
+                }}
+                onSave={handleSaveFavorites}
+            />
+
+
 
             {/* Sidebar */}
             <AnimatePresence mode="wait">
@@ -481,16 +631,6 @@ function ChatInterface() {
                                 <span className="text-sm font-medium">New Chat</span>
                             </button>
 
-                            <button
-                                onClick={() => setActiveView('goals')}
-                                className={`w-full flex items-center gap-2 p-3 rounded-lg transition-all ${activeView === 'goals'
-                                    ? 'bg-secondary text-white shadow-md'
-                                    : 'bg-input hover:bg-input/80 text-text'
-                                    }`}
-                            >
-                                <Target className="w-4 h-4" />
-                                <span className="text-sm font-medium">My Goals</span>
-                            </button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
@@ -519,7 +659,40 @@ function ChatInterface() {
                         </div>
 
                         {/* User Profile Footer (Same as before) */}
-                        <div className="p-4 border-t border-border dark:border-white/5 mt-auto">
+                        <div className="p-4 border-t border-border dark:border-white/5 mt-auto space-y-2">
+                            <button
+                                onClick={() => setActiveView('goals')}
+                                className={`w-full flex items-center gap-2 p-3 rounded-lg transition-all ${activeView === 'goals'
+                                    ? 'bg-secondary text-white shadow-md'
+                                    : 'bg-input hover:bg-input/80 text-text'
+                                    }`}
+                            >
+                                <Target className="w-4 h-4" />
+                                <span className="text-sm font-medium">My Goals</span>
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    setActiveView('rewards');
+                                    if (!userData?.favorites) {
+                                        setShowFavoritesModal(true);
+                                    }
+                                }}
+                                className={`w-full flex items-center gap-2 p-3 rounded-lg transition-all border ${activeView === 'rewards'
+                                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-500'
+                                    : 'bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-amber-500/20 text-amber-500 hover:from-amber-500/20 hover:to-orange-500/20'
+                                    } shadow-sm`}
+                            >
+                                <Gift className="w-4 h-4" />
+                                <span className="text-sm font-medium">Reward Store</span>
+                                <span className="ml-auto text-xs bg-amber-500/20 px-1.5 py-0.5 rounded-full font-bold flex items-center gap-0.5">
+                                    <Coins className="w-3 h-3" />
+                                    {userData?.coins || 0}
+                                </span>
+                            </button>
+
+                            <div className="h-px bg-border dark:bg-white/5 my-2"></div>
+
                             <button
                                 onClick={() => setShowProfileModal(true)}
                                 className="w-full flex items-center gap-3 mb-2 px-2 py-2 rounded-lg hover:bg-input transition-colors text-left group"
@@ -554,7 +727,7 @@ function ChatInterface() {
                             </button>
                         )}
                         <h1 className="text-lg font-medium text-text">
-                            {activeView === 'goals' ? 'Goal Tracker' : (chats.find(c => c.id === currentChatId)?.title || 'Study Companion')}
+                            {activeView === 'goals' ? 'Goal Tracker' : activeView === 'rewards' ? 'Reward Store' : (chats.find(c => c.id === currentChatId)?.title || 'Study Companion')}
                         </h1>
                     </div>
                     <div>
@@ -565,6 +738,10 @@ function ChatInterface() {
                 {activeView === 'goals' ? (
                     <div className="flex-1 overflow-y-auto w-full max-w-5xl mx-auto md:p-8">
                         <GoalDashboard />
+                    </div>
+                ) : activeView === 'rewards' ? (
+                    <div className="flex-1 overflow-y-auto w-full max-w-6xl mx-auto md:p-8">
+                        <RewardDashboard favorites={userData?.favorites} />
                     </div>
                 ) : (
                     <>

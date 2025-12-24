@@ -61,7 +61,22 @@ export const register = async (email: string, password: string, fullName: string
 
 export const getMe = async () => {
     const response = await axios.get(`${API_URL}/users/me`);
+    return response.data; // User object
+}
+
+export const updateFavorites = async (favorites: string) => {
+    const response = await axios.put(`${API_URL}/users/me/favorites`, { favorites });
     return response.data;
+}
+
+export const getRewards = async () => {
+    const response = await axios.get(`${API_URL}/users/me/rewards`);
+    return response.data; // { coins: number, items: RewardItem[] }
+}
+
+export const redeemReward = async (cost: number) => {
+    const response = await axios.post(`${API_URL}/users/me/redeem`, { cost });
+    return response.data; // { status: string, new_balance: number }
 }
 
 export const getProfile = async () => {
@@ -149,5 +164,5 @@ export const decomposeGoal = async (id: number, breakdownType: 'daily' | 'weekly
 
 export const getGoalQuiz = async (id: number) => {
     const response = await axios.get(`${API_URL}/goals/${id}/quiz`);
-    return response.data; // { available: boolean, quiz: { is_learning: boolean, questions: [...] } }
+    return response.data;
 }
