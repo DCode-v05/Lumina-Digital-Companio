@@ -13,4 +13,4 @@ pydantic[email]
 transformers
 torch
 groq
-groq
+requests

@@ -623,4 +623,111 @@ def get_chat_history_endpoint(
     chat_id: str,
     current_user: models.User = Depends(auth.get_current_user)
 ):
+
     return get_chat_history(chat_id)
+
+# ----------------------------
+# Integration Routes
+# ----------------------------
+
+@app.post("/integrations/connect", response_model=schemas.IntegrationStatus)
+def connect_integration(
+    request: schemas.IntegrationConnect,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Check if integration already exists
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == request.provider
+    ).first()
+
+    if not integration:
+        integration = models.Integration(
+            user_id=current_user.id,
+            provider=request.provider
+        )
+        db.add(integration)
+
+    # Update tokens
+    integration.access_token = request.access_token
+    integration.refresh_token = request.refresh_token
+    
+    if request.expires_in:
+        integration.expires_at = datetime.now(timezone.utc) + timedelta(seconds=request.expires_in)
+    
+    db.commit()
+    db.refresh(integration)
+    
+    return {"provider": request.provider, "is_connected": True, "last_synced": datetime.now()}
+
+@app.get("/integrations", response_model=list[schemas.IntegrationStatus])
+def list_integrations(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integrations = db.query(models.Integration).filter(models.Integration.user_id == current_user.id).all()
+    results = []
+    
+    # We want to show status for supported providers even if not connected
+    supported = ["github", "onenote"]
+    connected_map = {i.provider: i for i in integrations}
+    
+    for prov in supported:
+        if prov in connected_map:
+            results.append({
+                "provider": prov,
+                "is_connected": True,
+                "last_synced": connected_map[prov].created_at # approximate
+            })
+        else:
+             results.append({
+                "provider": prov,
+                "is_connected": False,
+                "last_synced": None
+            })
+    return results
+
+# --- Service Proxies ---
+
+@app.get("/integrations/github/repos", response_model=list[schemas.GitHubRepo])
+def get_user_github_repos(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "github"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+
+    from integration_service import fetch_github_repos
+    result = fetch_github_repos(integration.access_token)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+@app.get("/integrations/onenote/pages", response_model=list[schemas.OneNotePage])
+def get_user_onenote_pages(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "onenote"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="OneNote not connected")
+
+    from integration_service import fetch_onenote_pages
+    result = fetch_onenote_pages(integration.access_token)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result

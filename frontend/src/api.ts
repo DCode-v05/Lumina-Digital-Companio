@@ -163,6 +163,37 @@ export const decomposeGoal = async (id: number, breakdownType: 'daily' | 'weekly
 }
 
 export const getGoalQuiz = async (id: number) => {
-    const response = await axios.get(`${API_URL}/goals/${id}/quiz`);
+const response = await axios.get(`${API_URL}/goals/${id}/quiz`);
+return response.data;
+}
+
+// --- Integrations ---
+
+export interface IntegrationStatus {
+    provider: string;
+    is_connected: boolean;
+    last_synced: string | null;
+}
+
+export const connectIntegration = async (provider: string, accessToken: string) => {
+    const response = await axios.post(`${API_URL}/integrations/connect`, {
+        provider,
+        access_token: accessToken
+    });
     return response.data;
+}
+
+export const getIntegrations = async () => {
+    const response = await axios.get(`${API_URL}/integrations`);
+    return response.data; // IntegrationStatus[]
+}
+
+export const getGitHubRepos = async () => {
+    const response = await axios.get(`${API_URL}/integrations/github/repos`);
+    return response.data; // List of repos
+}
+
+export const getOneNotePages = async () => {
+    const response = await axios.get(`${API_URL}/integrations/onenote/pages`);
+    return response.data; // List of pages
 }

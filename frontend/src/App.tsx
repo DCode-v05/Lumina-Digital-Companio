@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Brain, LogOut, PanelLeftClose, PanelLeftOpen, Target, Gift, Heart, Coins } from 'lucide-react';
+import { Trash2, PlusCircle, MessageSquare, Send, User, Bot, Loader2, Brain, LogOut, PanelLeftClose, PanelLeftOpen, Target, Gift, Heart, Coins, Link as LinkIcon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
+import { IntegrationDashboard } from './components/IntegrationDashboard';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -350,8 +351,7 @@ function ChatInterface() {
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showFavoritesModal, setShowFavoritesModal] = useState(false);
 
-    // New View State
-    const [activeView, setActiveView] = useState<'chat' | 'goals' | 'rewards'>('chat');
+    const [activeView, setActiveView] = useState<'chat' | 'goals' | 'rewards' | 'integrations'>('chat');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -672,6 +672,17 @@ function ChatInterface() {
                             </button>
 
                             <button
+                                onClick={() => setActiveView('integrations')}
+                                className={`w-full flex items-center gap-2 p-3 rounded-lg transition-all ${activeView === 'integrations'
+                                    ? 'bg-purple-600 text-white shadow-md'
+                                    : 'bg-input hover:bg-input/80 text-text'
+                                    }`}
+                            >
+                                <LinkIcon className="w-4 h-4" />
+                                <span className="text-sm font-medium">Integrations</span>
+                            </button>
+
+                            <button
                                 onClick={() => {
                                     setActiveView('rewards');
                                     if (!userData?.favorites) {
@@ -727,7 +738,7 @@ function ChatInterface() {
                             </button>
                         )}
                         <h1 className="text-lg font-medium text-text">
-                            {activeView === 'goals' ? 'Goal Tracker' : activeView === 'rewards' ? 'Reward Store' : (chats.find(c => c.id === currentChatId)?.title || 'Study Companion')}
+                            {activeView === 'goals' ? 'Goal Tracker' : activeView === 'rewards' ? 'Reward Store' : activeView === 'integrations' ? 'Integrations' : (chats.find(c => c.id === currentChatId)?.title || 'Study Companion')}
                         </h1>
                     </div>
                     <div>
@@ -742,6 +753,10 @@ function ChatInterface() {
                 ) : activeView === 'rewards' ? (
                     <div className="flex-1 overflow-y-auto w-full max-w-6xl mx-auto md:p-8">
                         <RewardDashboard favorites={userData?.favorites} />
+                    </div>
+                ) : activeView === 'integrations' ? (
+                    <div className="flex-1 overflow-y-auto w-full max-w-5xl mx-auto md:p-8">
+                        <IntegrationDashboard />
                     </div>
                 ) : (
                     <>

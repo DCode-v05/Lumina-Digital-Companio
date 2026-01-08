@@ -85,3 +85,28 @@ class Goal(GoalBase):
 
 class RedeemRequest(BaseModel):
     cost: int
+
+class IntegrationBase(BaseModel):
+    provider: str
+
+class IntegrationConnect(IntegrationBase):
+    access_token: str
+    refresh_token: Optional[str] = None
+    expires_in: Optional[int] = None
+
+class IntegrationStatus(IntegrationBase):
+    is_connected: bool
+    last_synced: Optional[datetime] = None
+
+class GitHubRepo(BaseModel):
+    id: int
+    name: str
+    html_url: str
+    description: Optional[str] = None
+    stars: int
+
+class OneNotePage(BaseModel):
+    id: str
+    title: str
+    links: Optional[dict] = None
+

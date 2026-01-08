@@ -48,3 +48,15 @@ class UserFact(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     fact_text = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Integration(Base):
+    __tablename__ = "integrations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    provider = Column(String)  # 'github', 'onenote'
+    access_token = Column(String)
+    refresh_token = Column(String, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    settings = Column(Text, nullable=True)  # JSON string for extra config
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
