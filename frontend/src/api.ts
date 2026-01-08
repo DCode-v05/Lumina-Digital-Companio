@@ -74,9 +74,14 @@ export const getRewards = async () => {
     return response.data; // { coins: number, items: RewardItem[] }
 }
 
-export const redeemReward = async (cost: number) => {
-    const response = await axios.post(`${API_URL}/users/me/redeem`, { cost });
+export const redeemReward = async (cost: number, rewardName: string) => {
+    const response = await axios.post(`${API_URL}/users/me/redeem`, { cost, reward_name: rewardName });
     return response.data; // { status: string, new_balance: number }
+}
+
+export const getPurchasedRewards = async () => {
+    const response = await axios.get(`${API_URL}/users/me/purchased-rewards`);
+    return response.data; // PurchasedReward[]
 }
 
 export const getProfile = async () => {
@@ -196,4 +201,9 @@ export const getGitHubRepos = async () => {
 export const getOneNotePages = async () => {
     const response = await axios.get(`${API_URL}/integrations/onenote/pages`);
     return response.data; // List of pages
+}
+
+export const disconnectIntegration = async (provider: string) => {
+    const response = await axios.delete(`${API_URL}/integrations/${provider}`);
+    return response.data;
 }

@@ -3,7 +3,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Model Configuration
@@ -19,11 +18,11 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
 # Postgres
-POSTGRES_USER = os.getenv("POSTGRES_USER", "denistanb05")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "Denis%40123")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "digcom")
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "abinesh")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "abinesh%40123")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "abidb")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "127.0.0.1")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5431")
 DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
 # Auth

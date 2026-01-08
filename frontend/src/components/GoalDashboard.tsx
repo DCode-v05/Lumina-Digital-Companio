@@ -105,6 +105,30 @@ export function GoalDashboard() {
     const toggleSubtask = async (goal: Goal, index: number) => {
         const subtasks = getSubtasks(goal.subtasks);
         if (subtasks[index] && typeof subtasks[index] === 'object') {
+            // Check if this day can be toggled based on previous days
+            const isDayTask = subtasks[index].text?.toLowerCase().includes('day ');
+            if (isDayTask) {
+                const dayMatch = subtasks[index].text.match(/day (\d+):/i);
+                if (dayMatch) {
+                    const currentDay = parseInt(dayMatch[1]);
+                    // Check if previous days are completed
+                    for (let i = 0; i < index; i++) {
+                        const prevTask = subtasks[i];
+                        if (typeof prevTask === 'object') {
+                            const prevDayMatch = prevTask.text?.match(/day (\d+):/i);
+                            if (prevDayMatch) {
+                                const prevDay = parseInt(prevDayMatch[1]);
+                                // If this is a previous day and it's not completed, block the toggle
+                                if (prevDay < currentDay && !prevTask.completed) {
+                                    alert(`Please complete Day ${prevDay} first before starting Day ${currentDay}`);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             subtasks[index].completed = !subtasks[index].completed;
         } else {
             return;
@@ -402,16 +426,65 @@ export function GoalDashboard() {
                                                                     const text = isObj ? step.text : step;
                                                                     const isCompleted = isObj ? step.completed : false;
 
+                                                                    // Check if this is a day-based task
+                                                                    const isDayTask = text?.toLowerCase().includes('day ');
+                                                                    let isLocked = false;
+                                                                    let currentDay = 0;
+
+                                                                    if (isDayTask && isObj) {
+                                                                        const dayMatch = text.match(/day (\d+):/i);
+                                                                        if (dayMatch) {
+                                                                            currentDay = parseInt(dayMatch[1]);
+                                                                            // Check if previous days are completed
+                                                                            const allSubtasks = getSubtasks(goal.subtasks);
+                                                                            for (let j = 0; j < i; j++) {
+                                                                                const prevTask = allSubtasks[j];
+                                                                                if (typeof prevTask === 'object') {
+                                                                                    const prevDayMatch = prevTask.text?.match(/day (\d+):/i);
+                                                                                    if (prevDayMatch) {
+                                                                                        const prevDay = parseInt(prevDayMatch[1]);
+                                                                                        if (prevDay < currentDay && !prevTask.completed) {
+                                                                                            isLocked = true;
+                                                                                            break;
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+
                                                                     return (
                                                                         <div
                                                                             key={i}
-                                                                            onClick={() => toggleSubtask(goal, i)}
-                                                                            className={`flex gap-3 text-sm cursor-pointer group/step p-2 rounded-lg transition-all ${isCompleted ? 'text-muted decoration-line-through' : 'text-text hover:bg-white/5'}`}
+                                                                            onClick={() => !isLocked && toggleSubtask(goal, i)}
+                                                                            className={`flex gap-3 text-sm group/step p-2 rounded-lg transition-all ${
+                                                                                isLocked 
+                                                                                    ? 'opacity-50 cursor-not-allowed text-muted' 
+                                                                                    : isCompleted 
+                                                                                        ? 'text-muted decoration-line-through cursor-pointer' 
+                                                                                        : 'text-text hover:bg-white/5 cursor-pointer'
+                                                                            }`}
+                                                                            title={isLocked ? 'Complete previous days first' : ''}
                                                                         >
-                                                                            <div className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center transition-all ${isCompleted ? 'bg-secondary border-secondary' : 'border-muted hover:border-secondary'}`}>
-                                                                                {isCompleted && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                                                                            <div className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                                                                                isLocked
+                                                                                    ? 'border-muted/30 bg-gray-800'
+                                                                                    : isCompleted 
+                                                                                        ? 'bg-secondary border-secondary' 
+                                                                                        : 'border-muted hover:border-secondary'
+                                                                            }`}>
+                                                                                {isLocked ? (
+                                                                                    <span className="text-[10px] text-muted">🔒</span>
+                                                                                ) : isCompleted ? (
+                                                                                    <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                                                                ) : null}
                                                                             </div>
-                                                                            <span className={`flex-1 ${isCompleted ? 'text-muted' : ''}`}>{text}</span>
+                                                                            <span className={`flex-1 ${isCompleted ? 'text-muted' : ''} ${isLocked ? 'italic' : ''}`}>
+                                                                                {text}
+                                                                                {isLocked && currentDay > 1 && (
+                                                                                    <span className="ml-2 text-xs text-red-400">(Complete Day {currentDay - 1} first)</span>
+                                                                                )}
+                                                                            </span>
                                                                         </div>
                                                                     );
                                                                 })}
