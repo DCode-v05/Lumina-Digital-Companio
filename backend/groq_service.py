@@ -7,6 +7,45 @@ from config import GROQ_API_KEY, MODEL_CONFIG
 # Initialize Groq Client
 client = Groq(api_key=GROQ_API_KEY)
 
+# --- INTEGRATION DETECTION ---
+
+def detect_integration_intent(user_message):
+    """
+    Detects if the user is requesting GitHub or OneNote actions.
+    Returns: {"type": "github|onenote|none", "action": "list|create|count|get|update|delete", "params": {}}
+    """
+    message_lower = user_message.lower()
+    
+    # GitHub detection patterns
+    github_patterns = {
+        "count": ["how many repos", "count my repos", "total repos", "number of repositories"],
+        "list": ["show repos", "list repos", "my repositories", "github repos", "what repos"],
+        "create": ["create repo", "make repo", "new repository", "add repository"],
+        "get": ["show repo", "details of repo", "info about repo"],
+        "update": ["rename repo", "update repo", "change repo"],
+        "delete": ["delete repo", "remove repo"]
+    }
+    
+    # OneNote detection patterns (read-only)
+    onenote_patterns = {
+        "count": ["how many pages", "count my notes", "total pages", "number of notes", "count notes", "how many onenote"],
+        "list": ["show pages", "list notes", "my onenote", "onenote pages", "what notes", "show notes", "list my notes"],
+        "sections": ["show sections", "list sections", "onenote sections", "what sections"],
+        "get": ["show page", "details of page", "info about note", "get page"]
+    }
+    
+    # Check GitHub
+    for action, patterns in github_patterns.items():
+        if any(pattern in message_lower for pattern in patterns):
+            return {"type": "github", "action": action, "params": {}}
+    
+    # Check OneNote  
+    for action, patterns in onenote_patterns.items():
+        if any(pattern in message_lower for pattern in patterns):
+            return {"type": "onenote", "action": action, "params": {}}
+    
+    return {"type": "none", "action": None, "params": {}}
+
 # --- PROMPTS & BEHAVIOR CONFIGURATION ---
 
 JSON_SCHEMA_INSTRUCTION = """
@@ -426,14 +465,45 @@ def generate_goal_quiz(goal_title, subtasks):
         Analyze this goal: "{goal_title}" and its subtasks:
         {content_context}
         
-        1. Determine if this is a "Learning" goal (e.g. learning a language, skill, coding, history) or just a chore/task (e.g. clean garage, buy groceries).
-        2. If it is NOT a learning goal, return strictly: {{ "is_learning": false }}
-        3. If it IS a learning goal, generate a quiz with 5 Multiple Choice Questions (MCQs) to test the user's knowledge based on these subtasks.
+        1. Determine if this goal involves ANY form of learning, skill development, planning a project, or achieving something that requires knowledge.
+           - Learning goals: Languages, coding, history, science, etc.
+           - Project planning goals: Creating something, organizing an event, developing a plan
+           - Skill development: Any activity that requires practice or understanding
+           
+        2. If this is just a simple chore with no learning aspect (e.g., "buy groceries", "clean room"), return: {{ "is_learning": false }}
+        
+        3. Otherwise, generate a quiz with EXACTLY 5 Multiple Choice Questions (MCQs) that test understanding of the goal or project planning process.
+           - For learning goals: Test the actual knowledge
+           - For project goals: Test project management concepts, planning steps, or goal-specific knowledge
+        
+        Be LENIENT - if there's any educational or skill-building aspect, treat it as a learning goal.
+        
+        CRITICAL: You MUST generate exactly 5 questions - no more, no less.
         
         Output Format (JSON Only):
         {{
             "is_learning": true,
             "questions": [
+                {{
+                    "question": "...",
+                    "options": ["A", "B", "C", "D"],
+                    "correct_answer": "Option Text" 
+                }},
+                {{
+                    "question": "...",
+                    "options": ["A", "B", "C", "D"],
+                    "correct_answer": "Option Text" 
+                }},
+                {{
+                    "question": "...",
+                    "options": ["A", "B", "C", "D"],
+                    "correct_answer": "Option Text" 
+                }},
+                {{
+                    "question": "...",
+                    "options": ["A", "B", "C", "D"],
+                    "correct_answer": "Option Text" 
+                }},
                 {{
                     "question": "...",
                     "options": ["A", "B", "C", "D"],
@@ -451,13 +521,23 @@ def generate_goal_quiz(goal_title, subtasks):
         )
         
         text = completion.choices[0].message.content.strip()
+        print(f"📝 Quiz generation response: {text[:200]}...")
         data = json.loads(text)
         
         if not data.get("is_learning"):
+            print(f"ℹ️  Goal '{goal_title}' not detected as a learning goal")
             return None
+        
+        # Validate that we have questions
+        if not data.get("questions") or len(data["questions"]) < 5:
+            print(f"⚠️  Quiz generated but has {len(data.get('questions', []))} questions (expected 5)")
             
         return data
 
+    except json.JSONDecodeError as e:
+        print(f"⚠️ Quiz generation failed - Invalid JSON: {e}")
+        print(f"   Response text: {text if 'text' in locals() else 'N/A'}")
+        return None
     except Exception as e:
         print(f"⚠️ Quiz generation failed: {e}")
         return None

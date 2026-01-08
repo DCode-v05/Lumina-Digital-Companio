@@ -213,6 +213,21 @@ def list_user_chats(current_user: models.User = Depends(auth.get_current_user)):
 
 @app.post("/goals", response_model=schemas.Goal)
 def create_goal(goal: schemas.GoalCreate, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    # Check for duplicate goals with same name, description, and priority
+    existing_goal = db.query(models.Goal).filter(
+        models.Goal.user_id == current_user.id,
+        models.Goal.title == goal.title,
+        models.Goal.description == goal.description,
+        models.Goal.priority == goal.priority,
+        models.Goal.status != "Completed"  # Allow duplicates only if previous is completed
+    ).first()
+    
+    if existing_goal:
+        raise HTTPException(
+            status_code=400, 
+            detail="A goal with the same name, description, and priority already exists"
+        )
+    
     db_goal = models.Goal(**goal.dict(), user_id=current_user.id)
     # Ensure subtasks is valid JSON text if provided
     if not db_goal.subtasks:
@@ -249,17 +264,25 @@ def update_goal(goal_id: int, goal: schemas.GoalUpdate, current_user: models.Use
         print(f"💰 User rewarded 50 coins for completing goal {goal_id}")
 
     # Check for breakdown completion and generate quiz if needed
-    if db_goal.subtasks and not db_goal.quiz_content:
+    if db_goal.subtasks:
         try:
              subtasks = json.loads(db_goal.subtasks)
-             if subtasks and all(t.get("completed") for t in subtasks):
-                 # Double check if we should generate quiz
-                 print(f"🎉 Goal {goal_id} completed! Generating quiz...")
+             # Check if all subtasks are completed
+             all_completed = subtasks and all(t.get("completed", False) for t in subtasks if isinstance(t, dict))
+             
+             # Generate quiz if all tasks completed and no quiz exists yet
+             if all_completed and not db_goal.quiz_content:
+                 print(f"🎉 Goal {goal_id} - All tasks completed! Generating quiz...")
                  quiz_data = generate_goal_quiz(db_goal.title, subtasks)
                  if quiz_data:
+                     print(f"✅ Quiz generated successfully for goal {goal_id}")
                      db_goal.quiz_content = json.dumps(quiz_data)
                      db.commit()
                      db.refresh(db_goal)
+                 else:
+                     print(f"❌ Quiz generation returned None (might not be a learning goal)")
+        except json.JSONDecodeError as e:
+            print(f"Error parsing subtasks JSON for goal {goal_id}: {e}")
         except Exception as e:
             print(f"Error checking goal completion for quiz: {e}")
 
@@ -312,11 +335,31 @@ def get_goal_quiz(goal_id: int, current_user: models.User = Depends(auth.get_cur
     db_goal = db.query(models.Goal).filter(models.Goal.id == goal_id, models.Goal.user_id == current_user.id).first()
     if not db_goal:
         raise HTTPException(status_code=404, detail="Goal not found")
-        
+    
+    print(f"🔍 Quiz request for goal {goal_id}")
+    print(f"   Quiz content exists: {bool(db_goal.quiz_content)}")
+    print(f"   Quiz content preview: {db_goal.quiz_content[:100] if db_goal.quiz_content else 'None'}")
+    
     if not db_goal.quiz_content:
-         return {"available": False}
-         
-    return {"available": True, "quiz": json.loads(db_goal.quiz_content)}
+        # Check if all tasks are completed
+        if db_goal.subtasks:
+            try:
+                subtasks = json.loads(db_goal.subtasks)
+                all_completed = all(t.get("completed", False) for t in subtasks if isinstance(t, dict))
+                print(f"   All tasks completed: {all_completed}")
+                if not all_completed:
+                    return {"available": False, "message": "Complete all tasks first"}
+            except:
+                pass
+        return {"available": False, "message": "No quiz available yet"}
+    
+    try:
+        quiz_data = json.loads(db_goal.quiz_content)
+        print(f"✅ Returning quiz with {len(quiz_data.get('questions', []))} questions")
+        return {"available": True, "quiz": quiz_data}
+    except Exception as e:
+        print(f"❌ Error parsing quiz content: {e}")
+        return {"available": False, "message": "Quiz data corrupted"}
 
 @app.delete("/goals/{goal_id}")
 def delete_goal(goal_id: int, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
@@ -445,8 +488,27 @@ def redeem_reward(
     
     current_user.coins -= request.cost
     log_coin_transaction(current_user, "Reward Redeemed", -request.cost)
+    
+    # Track purchased reward
+    purchased_reward = models.PurchasedReward(
+        user_id=current_user.id,
+        reward_name=request.reward_name,
+        reward_cost=request.cost
+    )
+    db.add(purchased_reward)
     db.commit()
+    
     return {"status": "success", "new_balance": current_user.coins}
+
+@app.get("/users/me/purchased-rewards", response_model=list[schemas.PurchasedReward])
+def get_purchased_rewards(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    purchased = db.query(models.PurchasedReward).filter(
+        models.PurchasedReward.user_id == current_user.id
+    ).order_by(models.PurchasedReward.purchased_at.desc()).all()
+    return purchased
 
 @app.delete("/chats/{chat_id}")
 def delete_chat_endpoint(
@@ -490,6 +552,216 @@ def chat_endpoint(
     chat_id = request.chat_id
     user_message = request.message
     
+    # --- CHECK FOR INTEGRATION REQUESTS ---
+    from groq_service import detect_integration_intent
+    integration_intent = detect_integration_intent(user_message)
+    
+    if integration_intent["type"] != "none":
+        # Handle Integration Request
+        integration_type = integration_intent["type"]
+        action = integration_intent["action"]
+        
+        # Check if integration is connected
+        integration = db.query(models.Integration).filter(
+            models.Integration.user_id == current_user.id,
+            models.Integration.provider == integration_type
+        ).first()
+        
+        if not integration or not integration.access_token:
+            ai_text = f"❌ You haven't connected your {integration_type.capitalize()} account yet. Please connect it first from the Integrations page."
+            add_message(chat_id, "user", user_message)
+            add_message(chat_id, "model", ai_text)
+            return schemas.ChatResponse(
+                response=ai_text,
+                chat_id=chat_id,
+                title=None,
+                mode="primary",
+                memory_updated=False,
+                goal_created=None
+            )
+        
+        # Call the appropriate service
+        try:
+            if integration_type == "github":
+                from github_service import (
+                    fetch_github_repos, get_github_repo_count,
+                    create_github_repo, get_github_repo,
+                    update_github_repo, delete_github_repo
+                )
+                
+                if action == "count":
+                    result = get_github_repo_count(integration.access_token)
+                    if "error" in result:
+                        ai_text = f"❌ Error: {result['error']}"
+                    else:
+                        ai_text = f"📊 You have **{result['count']} repositories** on GitHub!"
+                
+                elif action == "list":
+                    result = fetch_github_repos(integration.access_token)
+                    if isinstance(result, dict) and "error" in result:
+                        ai_text = f"❌ Error: {result['error']}"
+                    else:
+                        ai_text = f"## Your GitHub Repositories ({len(result)} total)\n\n"
+                        for repo in result[:10]:  # Show first 10
+                            ai_text += f"### 📦 [{repo['name']}]({repo['html_url']})\n"
+                            ai_text += f"- **Description:** {repo['description'] or 'No description'}\n"
+                            ai_text += f"- **Stars:** ⭐ {repo['stars']} | **Language:** {repo['language'] or 'N/A'} | **Private:** {'🔒 Yes' if repo['private'] else '🌍 No'}\n\n"
+                
+                elif action == "create":
+                    # Extract repo name from message
+                    import re
+                    match = re.search(r'(?:create|make|new)\s+(?:repo|repository)\s+(?:called|named)?\s*["\']?([a-zA-Z0-9_-]+)["\']?', user_message, re.IGNORECASE)
+                    if match:
+                        repo_name = match.group(1)
+                        result = create_github_repo(integration.access_token, repo_name)
+                        if "error" in result:
+                            ai_text = f"❌ Error: {result['error']}"
+                        else:
+                            ai_text = f"✅ Successfully created repository **[{result['name']}]({result['html_url']})**!"
+                    else:
+                        ai_text = "❌ Please specify a repository name. Example: 'Create repo called my-project'"
+                
+                elif action == "update":
+                    # Extract repo info: "rename X to Y" or "update X description to Z"
+                    import re
+                    
+                    # Pattern 1: "rename repo-name to new-name"
+                    rename_match = re.search(r'rename\s+(?:repo\s+)?([a-zA-Z0-9_-]+)\s+to\s+([a-zA-Z0-9_-]+)', user_message, re.IGNORECASE)
+                    
+                    # Pattern 2: "update repo-name description to 'text'"
+                    desc_match = re.search(r'update\s+([a-zA-Z0-9_-]+)\s+description\s+to\s+["\'](.+?)["\']', user_message, re.IGNORECASE)
+                    
+                    if rename_match:
+                        old_name = rename_match.group(1)
+                        new_name = rename_match.group(2)
+                        
+                        # Get owner from token (assuming it's the authenticated user)
+                        user_repos = fetch_github_repos(integration.access_token, per_page=1)
+                        if user_repos and len(user_repos) > 0:
+                            owner = user_repos[0]['full_name'].split('/')[0]
+                            result = update_github_repo(integration.access_token, owner, old_name, new_name=new_name)
+                            if "error" in result:
+                                ai_text = f"❌ Error: {result['error']}"
+                            else:
+                                ai_text = f"✅ Successfully renamed repository to **[{result['name']}]({result['html_url']})**!"
+                        else:
+                            ai_text = "❌ Could not determine your GitHub username."
+                    
+                    elif desc_match:
+                        repo_name = desc_match.group(1)
+                        new_desc = desc_match.group(2)
+                        
+                        user_repos = fetch_github_repos(integration.access_token, per_page=1)
+                        if user_repos and len(user_repos) > 0:
+                            owner = user_repos[0]['full_name'].split('/')[0]
+                            result = update_github_repo(integration.access_token, owner, repo_name, description=new_desc)
+                            if "error" in result:
+                                ai_text = f"❌ Error: {result['error']}"
+                            else:
+                                ai_text = f"✅ Successfully updated **{result['name']}** description!"
+                        else:
+                            ai_text = "❌ Could not determine your GitHub username."
+                    else:
+                        ai_text = "❌ Please specify update details. Examples:\n- 'Rename old-repo to new-repo'\n- 'Update my-repo description to \"New description\"'"
+                
+                elif action == "delete":
+                    # Extract repo name: "delete repo-name"
+                    import re
+                    match = re.search(r'(?:delete|remove)\s+(?:repo|repository)?\s*([a-zA-Z0-9_-]+)', user_message, re.IGNORECASE)
+                    
+                    if match:
+                        repo_name = match.group(1)
+                        
+                        # Get owner
+                        user_repos = fetch_github_repos(integration.access_token, per_page=1)
+                        if user_repos and len(user_repos) > 0:
+                            owner = user_repos[0]['full_name'].split('/')[0]
+                            result = delete_github_repo(integration.access_token, owner, repo_name)
+                            if "error" in result:
+                                ai_text = f"❌ Error: {result['error']}"
+                            else:
+                                ai_text = f"✅ Successfully deleted repository **{repo_name}**!"
+                        else:
+                            ai_text = "❌ Could not determine your GitHub username."
+                    else:
+                        ai_text = "❌ Please specify a repository name. Example: 'Delete repo called test-repo'"
+                
+                else:
+                    ai_text = f"⚠️ Action '{action}' is not fully implemented yet for GitHub."
+            
+            elif integration_type == "onenote":
+                from onenote_service import (
+                    fetch_onenote_pages, get_onenote_page_count,
+                    get_onenote_sections, get_onenote_page
+                )
+                
+                if action == "count":
+                    result = get_onenote_page_count(integration.access_token)
+                    if "error" in result:
+                        ai_text = f"❌ Error: {result['error']}"
+                    else:
+                        ai_text = f"📊 You have **{result['count']} pages** in OneNote!"
+                
+                elif action == "list":
+                    result = fetch_onenote_pages(integration.access_token)
+                    if isinstance(result, dict) and "error" in result:
+                        ai_text = f"❌ Error: {result['error']}"
+                    else:
+                        ai_text = f"## Your OneNote Pages ({len(result)} total)\n\n"
+                        for page in result[:10]:  # Show first 10
+                            ai_text += f"### 📄 {page['title']}\n"
+                            ai_text += f"- **Created:** {page.get('created_at', 'N/A')[:10]}\n"
+                            ai_text += f"- **Modified:** {page.get('modified_at', 'N/A')[:10]}\n\n"
+                
+                elif action == "sections":
+                    result = get_onenote_sections(integration.access_token)
+                    if isinstance(result, dict) and "error" in result:
+                        ai_text = f"❌ Error: {result['error']}"
+                    else:
+                        ai_text = f"## Your OneNote Sections ({len(result)} total)\n\n"
+                        for section in result:
+                            ai_text += f"- 📁 **{section['name']}** (ID: `{section['id']}`)\n"
+                
+                elif action == "get":
+                    # Extract page ID
+                    import re
+                    match = re.search(r'(?:show|get|details)\s+(?:page|note)\s+(\S+)', user_message, re.IGNORECASE)
+                    
+                    if match:
+                        page_id = match.group(1)
+                        result = get_onenote_page(integration.access_token, page_id)
+                        if "error" in result:
+                            ai_text = f"❌ Error: {result['error']}"
+                        else:
+                            ai_text = f"## 📄 {result['title']}\n\n"
+                            ai_text += f"- **Created:** {result.get('created_at', 'N/A')[:10]}\n"
+                            ai_text += f"- **Modified:** {result.get('modified_at', 'N/A')[:10]}\n"
+                            ai_text += f"- **Page ID:** `{result['id']}`\n"
+                            if result.get('links', {}).get('oneNoteWebUrl'):
+                                ai_text += f"- **[Open in OneNote]({result['links']['oneNoteWebUrl']['href']})**\n"
+                    else:
+                        ai_text = "❌ Please specify a page ID. Example: 'Show page {page-id}'"
+                
+                else:
+                    ai_text = f"⚠️ OneNote integration is read-only. Available commands: count, list, sections, get."
+        
+        except Exception as e:
+            ai_text = f"❌ An error occurred: {str(e)}"
+        
+        # Save messages
+        add_message(chat_id, "user", user_message)
+        add_message(chat_id, "model", ai_text)
+        
+        return schemas.ChatResponse(
+            response=ai_text,
+            chat_id=chat_id,
+            title=None,
+            mode="primary",
+            memory_updated=False,
+            goal_created=None
+        )
+    
+    # --- REGULAR CHAT FLOW (Non-integration) ---
     # Clean expired memories on every interaction (or could be moved to specific login hooks)
     from redis_client import clean_expired_facts
     clean_expired_facts(user_id)
@@ -688,7 +960,29 @@ def list_integrations(
             })
     return results
 
+@app.delete("/integrations/{provider}")
+def disconnect_integration(
+    provider: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Disconnect an integration by deleting the access token from the database."""
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == provider
+    ).first()
+    
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integration not found or not connected")
+    
+    db.delete(integration)
+    db.commit()
+    
+    return {"message": f"{provider} integration disconnected successfully"}
+
 # --- Service Proxies ---
+
+# GitHub Endpoints
 
 @app.get("/integrations/github/repos", response_model=list[schemas.GitHubRepo])
 def get_user_github_repos(
@@ -703,13 +997,139 @@ def get_user_github_repos(
     if not integration or not integration.access_token:
         raise HTTPException(status_code=400, detail="GitHub not connected")
 
-    from integration_service import fetch_github_repos
+    from github_service import fetch_github_repos
     result = fetch_github_repos(integration.access_token)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
         
     return result
+
+@app.get("/integrations/github/repos/count")
+def get_github_repo_count(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "github"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+
+    from github_service import get_github_repo_count
+    result = get_github_repo_count(integration.access_token)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+@app.post("/integrations/github/repos", response_model=schemas.GitHubRepoDetail)
+def create_github_repo(
+    request: schemas.GitHubRepoCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "github"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+
+    from github_service import create_github_repo
+    result = create_github_repo(
+        integration.access_token,
+        request.name,
+        request.private,
+        request.description
+    )
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+@app.get("/integrations/github/repos/{owner}/{repo}", response_model=schemas.GitHubRepoDetail)
+def get_specific_github_repo(
+    owner: str,
+    repo: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "github"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+
+    from github_service import get_github_repo
+    result = get_github_repo(integration.access_token, owner, repo)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+@app.put("/integrations/github/repos/{owner}/{repo}", response_model=schemas.GitHubRepoDetail)
+def update_github_repo_endpoint(
+    owner: str,
+    repo: str,
+    request: schemas.GitHubRepoUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "github"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+
+    from github_service import update_github_repo
+    result = update_github_repo(
+        integration.access_token,
+        owner,
+        repo,
+        request.new_name,
+        request.description
+    )
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+@app.delete("/integrations/github/repos/{owner}/{repo}")
+def delete_github_repo_endpoint(
+    owner: str,
+    repo: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "github"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+
+    from github_service import delete_github_repo
+    result = delete_github_repo(integration.access_token, owner, repo)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+# OneNote Endpoints
 
 @app.get("/integrations/onenote/pages", response_model=list[schemas.OneNotePage])
 def get_user_onenote_pages(
@@ -724,10 +1144,75 @@ def get_user_onenote_pages(
     if not integration or not integration.access_token:
         raise HTTPException(status_code=400, detail="OneNote not connected")
 
-    from integration_service import fetch_onenote_pages
+    from onenote_service import fetch_onenote_pages
     result = fetch_onenote_pages(integration.access_token)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
         
     return result
+
+@app.get("/integrations/onenote/pages/count")
+def get_onenote_page_count(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "onenote"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="OneNote not connected")
+
+    from onenote_service import get_onenote_page_count
+    result = get_onenote_page_count(integration.access_token)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+@app.get("/integrations/onenote/sections", response_model=list[schemas.OneNoteSection])
+def get_onenote_sections(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "onenote"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="OneNote not connected")
+
+    from onenote_service import get_onenote_sections
+    result = get_onenote_sections(integration.access_token)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+
+@app.get("/integrations/onenote/pages/{page_id}", response_model=schemas.OneNotePage)
+def get_specific_onenote_page(
+    page_id: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    integration = db.query(models.Integration).filter(
+        models.Integration.user_id == current_user.id,
+        models.Integration.provider == "onenote"
+    ).first()
+    
+    if not integration or not integration.access_token:
+        raise HTTPException(status_code=400, detail="OneNote not connected")
+
+    from onenote_service import get_onenote_page
+    result = get_onenote_page(integration.access_token, page_id)
+    
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+        
+    return result
+

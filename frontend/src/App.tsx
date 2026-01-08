@@ -752,7 +752,15 @@ function ChatInterface() {
                     </div>
                 ) : activeView === 'rewards' ? (
                     <div className="flex-1 overflow-y-auto w-full max-w-6xl mx-auto md:p-8">
-                        <RewardDashboard favorites={userData?.favorites} />
+                        <RewardDashboard 
+                            favorites={userData?.favorites}
+                            initialBalance={userData?.coins || 0}
+                            onBalanceUpdate={(newBalance) => {
+                                if (userData) {
+                                    setUserData({ ...userData, coins: newBalance });
+                                }
+                            }}
+                        />
                     </div>
                 ) : activeView === 'integrations' ? (
                     <div className="flex-1 overflow-y-auto w-full max-w-5xl mx-auto md:p-8">

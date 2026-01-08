@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Coins, Gift, Lock, ShoppingBag, Coffee, Heart, Music, Gamepad2, BookOpen, Sun, Moon, Smartphone, Clock, Youtube, Tv, Trophy, Star, Zap, User, History as HistoryIcon, X } from 'lucide-react';
-import { getRewards, redeemReward } from '../api';
+import { Coins, Gift, Lock, ShoppingBag, Coffee, Heart, Music, Gamepad2, BookOpen, Sun, Moon, Smartphone, Clock, Youtube, Tv, Trophy, Star, Zap, User, ShoppingCart, X } from 'lucide-react';
+import { getRewards, redeemReward, getPurchasedRewards } from '../api';
 
 const ICONS: Record<string, any> = {
     coffee: Coffee,
@@ -23,25 +23,32 @@ const ICONS: Record<string, any> = {
     default: Gift
 };
 
-export function RewardDashboard({ favorites }: { favorites?: string }) {
-    const [balance, setBalance] = useState(0);
+export function RewardDashboard({ favorites, initialBalance, onBalanceUpdate }: { favorites?: string, initialBalance?: number, onBalanceUpdate?: (newBalance: number) => void }) {
+    const [balance, setBalance] = useState(initialBalance || 0);
     const [items, setItems] = useState<any[]>([]);
-    const [history, setHistory] = useState<any[]>([]);
+    const [purchasedRewards, setPurchasedRewards] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [redeeming, setRedeeming] = useState<string | null>(null);
-    const [showHistory, setShowHistory] = useState(false);
+    const [showMyRewards, setShowMyRewards] = useState(false);
 
     useEffect(() => {
         setLoading(true);
         loadRewards();
+        loadPurchasedRewards();
     }, [favorites]); // Reload when favorites change
+
+    // Update balance when initialBalance prop changes
+    useEffect(() => {
+        if (initialBalance !== undefined) {
+            setBalance(initialBalance);
+        }
+    }, [initialBalance]);
 
     const loadRewards = async () => {
         try {
             const data = await getRewards();
             setBalance(data.coins);
             setItems(data.items);
-            setHistory(data.history || []);
         } catch (e) {
             console.error(e);
         } finally {
@@ -49,14 +56,25 @@ export function RewardDashboard({ favorites }: { favorites?: string }) {
         }
     };
 
-    const handleRedeem = async (id: string, cost: number) => {
+    const loadPurchasedRewards = async () => {
+        try {
+            const data = await getPurchasedRewards();
+            setPurchasedRewards(data);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleRedeem = async (id: string, cost: number, name: string) => {
         if (balance < cost) return;
         setRedeeming(id);
         try {
-            const res = await redeemReward(cost);
+            const res = await redeemReward(cost, name);
             setBalance(res.new_balance);
-            // Add local history item optimistically or reload
-            setHistory(prev => [...prev, { date: new Date().toISOString().split('T')[0], description: "Reward Redeemed", amount: -cost }]);
+            if (onBalanceUpdate) {
+                onBalanceUpdate(res.new_balance);
+            }
+            await loadPurchasedRewards(); // Reload purchased rewards
             alert("Reward Redeemed! Enjoy your break.");
         } catch (e) {
             alert("Redemption failed");
@@ -81,11 +99,12 @@ export function RewardDashboard({ favorites }: { favorites?: string }) {
                 <div className="flex flex-col items-end relative z-10 gap-2">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => setShowHistory(true)}
-                            className="text-amber-200/60 hover:text-amber-100 transition-colors p-1"
-                            title="Transaction History"
+                            onClick={() => setShowMyRewards(true)}
+                            className="text-amber-200/60 hover:text-amber-100 transition-colors p-2 hover:bg-amber-500/10 rounded-lg flex items-center gap-2"
+                            title="My Purchased Rewards"
                         >
-                            <HistoryIcon className="w-5 h-5" />
+                            <ShoppingCart className="w-5 h-5" />
+                            <span className="text-sm font-medium hidden sm:inline">My Rewards</span>
                         </button>
                         <div className="flex flex-col items-end">
                             <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Available</span>
@@ -134,7 +153,7 @@ export function RewardDashboard({ favorites }: { favorites?: string }) {
                                             </div>
 
                                             <button
-                                                onClick={() => handleRedeem(item.id, item.cost)}
+                                                onClick={() => handleRedeem(item.id, item.cost, item.name)}
                                                 disabled={!canAfford || redeeming === item.id}
                                                 className={`mt-4 w-full py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all flex items-center justify-center gap-2
                                                     ${canAfford
@@ -160,43 +179,52 @@ export function RewardDashboard({ favorites }: { favorites?: string }) {
                 })}
             </div>
 
-            {/* History Modal */}
+            {/* My Rewards Modal */}
             <AnimatePresence>
-                {showHistory && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowHistory(false)}>
+                {showMyRewards && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowMyRewards(false)}>
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-surface border border-border w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+                            className="bg-surface border border-border w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
                             onClick={e => e.stopPropagation()}
                         >
-                            <div className="p-4 border-b border-border flex justify-between items-center bg-input/20">
+                            <div className="p-4 border-b border-border flex justify-between items-center bg-gradient-to-r from-amber-500/10 to-orange-600/10">
                                 <h3 className="font-bold text-lg flex items-center gap-2">
-                                    <HistoryIcon className="w-5 h-5 text-primary" /> Coin History
+                                    <ShoppingCart className="w-5 h-5 text-amber-400" /> My Purchased Rewards
                                 </h3>
-                                <button onClick={() => setShowHistory(false)} className="p-1 hover:bg-input rounded-full text-muted hover:text-text transition-colors">
+                                <button onClick={() => setShowMyRewards(false)} className="p-1 hover:bg-input rounded-full text-muted hover:text-text transition-colors">
                                     <X className="w-5 h-5" />
                                 </button>
                             </div>
 
                             <div className="overflow-y-auto p-4 space-y-3">
-                                {history.length === 0 ? (
-                                    <div className="text-center py-8 text-muted">
-                                        <p>No transactions yet.</p>
+                                {purchasedRewards.length === 0 ? (
+                                    <div className="text-center py-12 text-muted">
+                                        <ShoppingCart className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                                        <p className="text-lg font-medium">No rewards purchased yet</p>
+                                        <p className="text-sm mt-2">Start redeeming rewards to see them here!</p>
                                     </div>
                                 ) : (
-                                    [...history].reverse().map((txn, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-input/30 border border-border/50">
-                                            <div>
-                                                <p className="text-sm font-medium text-text">{txn.description}</p>
-                                                <p className="text-xs text-muted">{txn.date}</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {purchasedRewards.map((reward) => (
+                                            <div key={reward.id} className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-br from-amber-500/5 to-orange-600/5 border border-amber-500/20">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                                                        <Gift className="w-5 h-5 text-amber-400" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-text">{reward.reward_name}</p>
+                                                        <p className="text-xs text-muted">{new Date(reward.purchased_at).toLocaleDateString()}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-sm font-bold text-amber-400 flex items-center gap-1">
+                                                    {reward.reward_cost} <Coins className="w-3 h-3" />
+                                                </div>
                                             </div>
-                                            <div className={`text-sm font-bold ${txn.amount > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {txn.amount > 0 ? '+' : ''}{txn.amount}
-                                            </div>
-                                        </div>
-                                    ))
+                                        ))}
+                                    </div>
                                 )}
                             </div>
                         </motion.div>

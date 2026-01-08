@@ -60,3 +60,12 @@ class Integration(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True)
     settings = Column(Text, nullable=True)  # JSON string for extra config
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class PurchasedReward(Base):
+    __tablename__ = "purchased_rewards"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    reward_name = Column(String)
+    reward_cost = Column(Integer)
+    purchased_at = Column(DateTime(timezone=True), server_default=func.now())

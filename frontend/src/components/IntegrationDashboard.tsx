@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Github, Notebook, CheckCircle, XCircle, ExternalLink, Loader2, RefreshCw, Key } from 'lucide-react';
-import { connectIntegration, getIntegrations, IntegrationStatus, getGitHubRepos, getOneNotePages } from '../api';
+import { Github, Notebook, CheckCircle, XCircle, ExternalLink, Loader2, RefreshCw, Key, Unplug } from 'lucide-react';
+import { connectIntegration, getIntegrations, IntegrationStatus, getGitHubRepos, getOneNotePages, disconnectIntegration } from '../api';
 
 const INTEGRATIONS = [
     {
@@ -30,6 +30,7 @@ export function IntegrationDashboard() {
     const [statuses, setStatuses] = useState<Record<string, IntegrationStatus>>({});
     const [loading, setLoading] = useState(true);
     const [connecting, setConnecting] = useState<string | null>(null);
+    const [disconnecting, setDisconnecting] = useState<string | null>(null);
     const [tokens, setTokens] = useState<Record<string, string>>({});
 
     // Data check states
@@ -86,6 +87,28 @@ export function IntegrationDashboard() {
             alert("Failed to fetch data. Token might be expired.");
         } finally {
             setLoadingData(null);
+        }
+    };
+
+    const handleDisconnect = async (providerId: string, providerName: string) => {
+        const confirmed = window.confirm(
+            `Are you sure you want to disconnect ${providerName}? This will remove the integration and you'll need to reconnect to use it again.`
+        );
+        
+        if (!confirmed) return;
+
+        setDisconnecting(providerId);
+        try {
+            await disconnectIntegration(providerId);
+            await loadIntegrations();
+            // Clear the data preview if it was showing
+            if (providerId === 'github') setRepos(null);
+            if (providerId === 'onenote') setNotes(null);
+        } catch (e) {
+            console.error("Disconnect failed", e);
+            alert("Failed to disconnect. Please try again.");
+        } finally {
+            setDisconnecting(null);
         }
     };
 
@@ -186,6 +209,23 @@ export function IntegrationDashboard() {
                                             <p className="text-green-500 text-sm font-medium">Integration Active</p>
                                             <p className="text-xs text-muted mt-1">Lumina can now access your {tool.name} data.</p>
                                         </div>
+                                        <button
+                                            onClick={() => handleDisconnect(tool.id, tool.name)}
+                                            disabled={disconnecting === tool.id}
+                                            className="w-full mt-4 flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 px-4 py-2 rounded-lg text-sm font-medium transition-all border border-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {disconnecting === tool.id ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    Disconnecting...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Unplug className="w-4 h-4" />
+                                                    Disconnect
+                                                </>
+                                            )}
+                                        </button>
                                     </div>
                                 )}
                             </div>

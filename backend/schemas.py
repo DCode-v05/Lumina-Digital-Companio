@@ -85,6 +85,16 @@ class Goal(GoalBase):
 
 class RedeemRequest(BaseModel):
     cost: int
+    reward_name: str
+
+class PurchasedReward(BaseModel):
+    id: int
+    reward_name: str
+    reward_cost: int
+    purchased_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class IntegrationBase(BaseModel):
     provider: str
@@ -104,9 +114,46 @@ class GitHubRepo(BaseModel):
     html_url: str
     description: Optional[str] = None
     stars: int
+    full_name: Optional[str] = None
+    private: Optional[bool] = None
+    language: Optional[str] = None
+
+class GitHubRepoDetail(BaseModel):
+    id: int
+    name: str
+    full_name: Optional[str] = None
+    html_url: str
+    description: Optional[str] = None
+    private: Optional[bool] = None
+    stars: Optional[int] = None
+    forks: Optional[int] = None
+    language: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class GitHubRepoCreate(BaseModel):
+    name: str
+    private: bool = False
+    description: str = ""
+
+class GitHubRepoUpdate(BaseModel):
+    new_name: Optional[str] = None
+    description: Optional[str] = None
 
 class OneNotePage(BaseModel):
     id: str
     title: str
     links: Optional[dict] = None
+    created_at: Optional[str] = None
+    modified_at: Optional[str] = None
+
+class OneNoteSection(BaseModel):
+    id: str
+    name: str
+
+class OneNotePageCreate(BaseModel):
+    section_id: str
+    title: str
+    content: str
+
 
