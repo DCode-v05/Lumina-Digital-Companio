@@ -97,8 +97,8 @@ The React app is a single-page client with routes for login/register and the mai
 ### Installation
 
 ```bash
-git clone https://github.com/DCode-v05/Lumina-Digital-Companio.git
-cd Lumina-Digital-Companio
+git clone https://github.com/DCode-v05/Lumina-Digital-Companion.git
+cd Lumina-Digital-Companion
 ```
 
 **Backend**
@@ -155,7 +155,7 @@ The database tables are created on startup. Make sure PostgreSQL and Redis are r
 ## Project Structure
 
 ```
-Lumina-Digital-Companio/
+Lumina-Digital-Companion/
 ├── backend/
 │   ├── main.py                 # FastAPI app, ~24 endpoints, chat orchestration
 │   ├── groq_service.py         # 4-model router, prompts, goal/quiz/reward generation
